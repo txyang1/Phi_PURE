@@ -46,6 +46,7 @@ from verl.utils.fsdp_utils import (
 from verl.utils.import_utils import import_external_libs
 from verl.utils.model import compute_position_id_with_mask
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
+from phi.phi_decoding import PhiDecoder  
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv('VERL_PPO_LOGGING_LEVEL', 'WARN'))
@@ -74,8 +75,111 @@ def get_sharding_strategy(device_mesh):
         raise NotImplementedError(f"Get device mesh ndim={device_mesh.ndim}, but only support 1 or 2")
     return sharding_strategy
 
+import argparse
+from types import SimpleNamespace
+from omegaconf import DictConfig
 
-class ActorRolloutRefWorker(Worker):
+
+def parse_arguments_from_my_config(phi_cfg: DictConfig) -> argparse.Namespace:
+    """
+    把 OmegaConf 格式的 config.phi 转成 argparse.Namespace，字段名称要与 PhiDecoder.parse_arguments() 保持一致。
+    举例：如果 phi_cfg.model_id = "llama3.1"，则 Namespace.model_id 也要等于 "llama3.1"。
+    """
+    # 首先，创建一个和原始 parse_arguments() 里一致的 parser，方便我们知道有哪些参数、默认值等
+    parser = argparse.ArgumentParser(description="Phi-Decoding Algorithm")
+
+    # Model configuration
+    parser.add_argument('--model_id', type=str, default='llama3.1',
+                        help='Model identifier')
+    parser.add_argument('--model_path', type=str,
+                        default='/data/xrm/yh/test_unsloth/Meta-Llama-3.1-8B-Instruct',
+                        help='Model path')
+    parser.add_argument('--gpus', type=int, default=2,
+                        help='Number of GPUs to use')
+
+    # Data configuration
+    parser.add_argument('--datasets', type=str, default='gsm',
+                        help='Dataset type')  # gsm, math, reclor, logiqa, gpqa, arc
+    parser.add_argument('--data_path', type=str,
+                        default='./data/gsm_test.json',
+                        help='Path to input data')
+    parser.add_argument('--output_dir', type=str,
+                        default='./results/',
+                        help='Output directory for results')
+
+    # Algorithm parameters
+    parser.add_argument('--step_beam_size', type=int, default=4,
+                        help='Beam size for each step')
+    parser.add_argument('--num_rollout', type=int, default=4,
+                        help='Number of rollouts')
+    parser.add_argument('--num_foresight', type=int, default=8,
+                        help='Number of foresight steps')
+    parser.add_argument('--strategy', type=str, default='cluster',
+                        help='Response selection strategy')
+    parser.add_argument('--width_pruning_strategy', type=str, default='low_sigma',
+                        help='Width pruning strategy')
+    parser.add_argument('--depth_pruning_strategy', type=str, default='cluster',
+                        help='Depth pruning strategy')
+    parser.add_argument('--cluster_num', type=int, default=3,
+                        help='Number of clusters for clustering strategy')
+    parser.add_argument('--threshold', type=float, default=0.69,
+                        help='Threshold for early stopping')
+    parser.add_argument('--least_foresight_num', type=int, default=4,
+                        help='Minimum number of foresight steps')
+    parser.add_argument('--sigma_rate', type=float, default=1.0,
+                        help='Sigma rate for width pruning')
+
+    # Execution configuration
+    parser.add_argument('--record_process', type=bool, default=True,
+                        help='Whether to record the decoding process')
+    parser.add_argument('--file_name', type=str, default='test_3',
+                        help='Output file name')
+    parser.add_argument('--time_path', type=str,
+                        default='./results/time/',
+                        help='Path to save timing information')
+    parser.add_argument('--seed', type=int, default=0,
+                        help='Random seed')
+
+    # 此时 parser 中已经定义了所有选项，下面把默认值先 read 一遍，放到一个简单的 Namespace 里
+    args = parser.parse_args(args=[])  # 不从 sys.argv 中读取任何值，得到的是所有默认值
+
+    # 再结合 phi_cfg（OmegaConf）里的值，将对应字段覆盖
+    # 如果 phi_cfg 里不存在某个字段，就继续保留 parser 给的默认值
+    def safe_get(cfg, key, default=None):
+        return cfg.get(key, default) if isinstance(cfg, dict) or isinstance(cfg, DictConfig) else default
+
+    # 以下一一映射 parser 里每个 add_argument 的选项
+    # Model configuration
+    args.model_id = safe_get(phi_cfg, 'model_id', args.model_id)
+    args.model_path = safe_get(phi_cfg, 'model_path', args.model_path)
+    args.gpus = safe_get(phi_cfg, 'gpus', args.gpus)
+
+    # Data configuration
+    args.datasets = safe_get(phi_cfg, 'datasets', args.datasets)
+    args.data_path = safe_get(phi_cfg, 'data_path', args.data_path)
+    args.output_dir = safe_get(phi_cfg, 'output_dir', args.output_dir)
+
+    # Algorithm parameters
+    args.step_beam_size = safe_get(phi_cfg, 'step_beam_size', args.step_beam_size)
+    args.num_rollout = safe_get(phi_cfg, 'num_rollout', args.num_rollout)
+    args.num_foresight = safe_get(phi_cfg, 'num_foresight', args.num_foresight)
+    args.strategy = safe_get(phi_cfg, 'strategy', args.strategy)
+    args.width_pruning_strategy = safe_get(phi_cfg, 'width_pruning_strategy', args.width_pruning_strategy)
+    args.depth_pruning_strategy = safe_get(phi_cfg, 'depth_pruning_strategy', args.depth_pruning_strategy)
+    args.cluster_num = safe_get(phi_cfg, 'cluster_num', args.cluster_num)
+    args.threshold = safe_get(phi_cfg, 'threshold', args.threshold)
+    args.least_foresight_num = safe_get(phi_cfg, 'least_foresight_num', args.least_foresight_num)
+    args.sigma_rate = safe_get(phi_cfg, 'sigma_rate', args.sigma_rate)
+
+    # Execution configuration
+    args.record_process = safe_get(phi_cfg, 'record_process', args.record_process)
+    args.file_name = safe_get(phi_cfg, 'file_name', args.file_name)
+    args.time_path = safe_get(phi_cfg, 'time_path', args.time_path)
+    args.seed = safe_get(phi_cfg, 'seed', args.seed)
+
+    return args
+
+class PhiActorRolloutRefWorker(Worker):
     """
     This worker can be instantiated as a standalone actor or a standalone rollout or a standalone reference policy
     or a hybrid engine based on the config.rollout
@@ -144,6 +248,9 @@ class ActorRolloutRefWorker(Worker):
             self.config.ref.log_prob_micro_batch_size //= (self.device_mesh.shape[0] //
                                                            self.ulysses_sequence_parallel_size)
             self.config.ref.log_prob_micro_batch_size_per_gpu = self.config.ref.log_prob_micro_batch_size
+        
+        phi_args = parse_arguments_from_my_config(config.phi)
+        self.phi_decoder = PhiDecoder(phi_args)
 
     def _build_model_optimizer(self,
                                model_path,
@@ -303,7 +410,7 @@ class ActorRolloutRefWorker(Worker):
         return actor_module_fsdp, actor_optimizer, actor_lr_scheduler, actor_model_config
 
     def _build_rollout(self):
-        from torch.distributed.device_mesh import init_device_mesh
+        '''from torch.distributed.device_mesh import init_device_mesh
 
         # TODO(sgm): support FSDP hybrid shard for larger model
         infer_tp = self.config.rollout.tensor_model_parallel_size
@@ -351,7 +458,10 @@ class ActorRolloutRefWorker(Worker):
                                                                device_mesh=rollout_device_mesh)
             log_gpu_memory_usage('After building sharding manager', logger=None)
 
-        return rollout, rollout_sharding_manager
+
+        return rollout, rollout_sharding_manager'''
+        return None, None
+
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
@@ -471,7 +581,7 @@ class ActorRolloutRefWorker(Worker):
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def generate_sequences(self, prompts: DataProto):
-        prompts = prompts.to('cuda')
+        '''prompts = prompts.to('cuda')
 
         assert self._is_rollout
         if self._is_offload_param:
@@ -509,7 +619,95 @@ class ActorRolloutRefWorker(Worker):
         # clear kv cache
         torch.cuda.empty_cache()
         log_gpu_memory_usage('After recompute log prob', logger=logger)
-        return output
+        return output'''
+        """
+        覆盖原来调用 vLLM 的 generate_sequences，改为“PhiDecoder 推理 + 打包 DataProto”：
+          1. 从 data.non_tensor_batch['raw_chat'] 中拿到一批纯文本 prompt
+          2. 循环调用 PhiDecoder.process_example(...) 得到 dict，其中包含：
+             - "response": 最终拼好的完整字符串
+             - "trajectories": { "final": {"responses": [...], "logprobs": [...], "advantages": [...], "selected_idx": int}, ... }
+          3. 提取出 "response" 这一条 text，把它 tokenizer 成 token IDs
+          4. 提取出 final 阶段的 "advantages" 列表，把它当作这条 response 每个 token 的 reward
+          5. 对不同长度的 token ID 及 reward 进行 pad，构造成张量 (B, max_resp_len)
+          6. 生成对应的 attention_mask、position_ids，并把所有内容塞回 DataProto，以 key "responses", "attention_mask", "position_ids", "token_level_rewards" 返回
+        """
+        assert self._is_rollout
+
+        # 1. 先从 non_tensor_batch 里拿纯文本 prompt 列表
+        raw_chats = data.non_tensor_batch.get('raw_chat', None)
+        assert raw_chats is not None, "generate_sequences 需要 data.non_tensor_batch['raw_chat'] 提供一批字符串"
+        batch_size = len(raw_chats)
+
+        final_resp_ids_list = []
+        final_combined_weights_list = []
+
+        for i in range(batch_size):
+            # 2. 构造单个 example 传给 PhiDecoder
+            single_raw = raw_chats[i]
+            example = {"input": single_raw}
+            system_prompt = self.phi_decoder.get_system_prompt(self.config.phi.get('datasets', None))
+
+            # Phi‐Decoding 的多个步骤会在 process_example 里完成
+            phi_result: Dict[str, Any] = self.phi_decoder.process_example(example, system_prompt)
+            # phi_result["response"] 是最终一条完整的文本字符串
+            response_text: str = phi_result["response"]
+            # phi_result["trajectories"]["final"]["advantages"] 是一个 list[float]，它表示每个候选 response 计算得到的 advantage
+            # 但它的长度等于 step_beam_size，不是 token-level。实际上，PhiDecoder 代码里没有给出真正的“每个 token”的 reward，
+            # 只有在“聚类阶段”有 per‐candidate 的 combined_weights（长度 == num candidates），而非 per‐token。
+            # 这里为了示范，把 final advantages 简单地广播到每个 token，或者填 0 也行。
+            final_adv_list: List[float] = phi_result["trajectories"]["final"]["advantages"]
+
+            # 3. 把 response_text 再 tokenize
+            encoding = self.phi_decoder.tokenizer(
+                response_text,
+                return_tensors="pt",
+                add_special_tokens=False
+            )
+            response_ids = encoding["input_ids"].squeeze(0).to("cuda")     # (resp_len,)
+            resp_len = response_ids.size(0)
+
+            # 4. 构造 token_level_rewards：这里演示两种做法，请根据下游需求二选其一：
+            #    A. 如果想把 candidates 的 combined_weights（candidate‐level）平均分配给每个 token：
+            #       cw = np.array(phi_result["trajectories"]["final"]["combined_weights"])
+            #       # normalize cw 再求平均：
+            #       avg = float(cw.mean())
+            #       token_rewards = torch.full((resp_len,), avg, dtype=torch.float32, device="cuda")
+            #
+            #    B. 如果要更精细地做 per‐token，可以把 response_text 切分成单个 token 然后用 logprobs 近似：
+            #       这里暂时用 final_adv_list[ selected_idx ] / resp_len 作为每个 token 的 reward
+            selected_idx = phi_result["trajectories"]["final"]["selected_idx"]
+            sel_adv = final_adv_list[selected_idx]
+            token_rewards = torch.full((resp_len,), sel_adv / resp_len, dtype=torch.float32, device="cuda")
+
+            final_resp_ids_list.append(response_ids)
+            final_combined_weights_list.append(token_rewards)
+
+        # 5. 对齐 batch：pad 到同一长度
+        from torch.nn.utils.rnn import pad_sequence
+
+        pad_id = self.phi_decoder.tokenizer.pad_token_id
+        batch_resp_ids = pad_sequence(
+            final_resp_ids_list, batch_first=True, padding_value=pad_id
+        )  # (B, max_resp_len)
+        batch_attn_resp = (batch_resp_ids != pad_id).long()  # (B, max_resp_len)
+
+        batch_token_rewards = pad_sequence(
+            final_combined_weights_list, batch_first=True, padding_value=0.0
+        )  # (B, max_resp_len)
+
+        B, R = batch_resp_ids.size()
+        # 6. 计算 position_ids（从 0 到 R−1）
+        position_ids = torch.arange(R, device="cuda").unsqueeze(0).repeat(B, 1)
+
+        # 7. 把结果打包进 DataProto
+        out = DataProto.from_dict(tensors={
+            "responses": batch_resp_ids,            # 模型输出的 token IDs
+            "attention_mask": batch_attn_resp,       # 这些 token 的 attention mask
+            "position_ids": position_ids,            # 位置编号，一般从 0 开始
+            "token_level_rewards": batch_token_rewards  # 关键：把 combined_weights / advantage 作为 token‐级奖励
+        })
+        return out.to("cpu")
+
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def compute_log_prob(self, data: DataProto):
