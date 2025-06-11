@@ -179,7 +179,7 @@ def parse_arguments_from_my_config(phi_cfg: DictConfig) -> argparse.Namespace:
 
     return args
 
-class PhiActorRolloutRefWorker(Worker):
+class ActorRolloutRefWorker(Worker):
     """
     This worker can be instantiated as a standalone actor or a standalone rollout or a standalone reference policy
     or a hybrid engine based on the config.rollout
@@ -632,7 +632,7 @@ class PhiActorRolloutRefWorker(Worker):
           6. 生成对应的 attention_mask、position_ids，并把所有内容塞回 DataProto，以 key "responses", "attention_mask", "position_ids", "token_level_rewards" 返回
         """
         assert self._is_rollout
-
+        data = prompts
         # 1. 先从 non_tensor_batch 里拿纯文本 prompt 列表
         raw_chats = data.non_tensor_batch.get('raw_chat', None)
         assert raw_chats is not None, "generate_sequences 需要 data.non_tensor_batch['raw_chat'] 提供一批字符串"
