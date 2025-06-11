@@ -20,8 +20,8 @@ from transformers import (
     BitsAndBytesConfig
 )
 from vllm import LLM, SamplingParams
-from data.logic_example import LOGIC_MRC_COT_4_SHOT
-from data.math_example import (
+from .data.logic_example import LOGIC_MRC_COT_4_SHOT
+from .data.math_example import (
     MATH_POT_FEW_SHOT,
     MATH_COT_FEW_SHOT,
     GSM_COT_8_SHOT,
