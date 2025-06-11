@@ -64,6 +64,7 @@ class Role(Enum):
     RefPolicy = 4
     RewardModel = 5
     ActorRolloutRef = 6
+    Phi = 7
 
 
 class AdvantageEstimator(str, Enum):
