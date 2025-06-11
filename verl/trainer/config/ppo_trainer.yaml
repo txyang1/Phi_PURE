@@ -13,15 +13,19 @@
 #   shuffle: True
 # # 把 data: 这一块改成这样
 data:
-  # 声明这是一个 JSON 数据集（具体 key 名看你们框架的数据加载器是怎么写的）
-  format: json
-  files: ${phi.data_path}          # 直接复用 phi.data_path
-  prompt_key: input                # JSON 里的字段名，对应 PhiDecoder.expect 的 example["input"]
-  return_raw_chat: True            # rollout 里要拿 raw_chat
+  # 只改这两行，指向 phi.data_path
+  train_files: "./data/math_test.json"    # 例如 "./data/math_test.json"
+  val_files: []                     # 如果不需要验证集，可以置为空列表
+  tokenizer: null
+  chat_template: null
+  prompt_key: input                 # JSON 里的字段——你在 phi 数据里是 "input"
   max_prompt_length: 1024
   max_response_length: 7168
   train_batch_size: 64
+  val_batch_size: null
   shuffle: True
+  return_raw_input_ids: False
+  return_raw_chat: True             # rollout 里要拿到原始 prompt
 
   
 phi:
