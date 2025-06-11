@@ -14,7 +14,7 @@
 # # 把 data: 这一块改成这样
 data:
   # 只改这两行，指向 phi.data_path
-  train_files: "./data/math_test.json"    # 例如 "./data/math_test.json"
+  train_files: "./data/gsm_test.json"    # 例如 "./data/math_test.json"
   val_files: []                     # 如果不需要验证集，可以置为空列表
   tokenizer: null
   chat_template: null
@@ -33,7 +33,7 @@ phi:
   model_path: "Qwen/Qwen2.5-3B"
   gpus: 1
   datasets: "math"
-  data_path: "./data/math_test.json"
+  data_path: "./data/gsm_test.json"
   output_dir: "./results/math/"
   step_beam_size: 5
   num_rollout: 6
