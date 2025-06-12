@@ -52,6 +52,7 @@ phi:
 
 
 actor_rollout_ref:
+  phi: ${phi} # inherit phi config
   hybrid_engine: True
   model:
     path: Qwen/Qwen2.5-7B
