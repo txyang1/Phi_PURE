@@ -55,7 +55,7 @@ def get_local_temp_path(hdfs_path: str, cache_dir: str) -> str:
     return dst
 
 
-def copy_to_local(src: str, cache_dir=None, filelock='.file.lock', verbose=False) -> str:
+'''def copy_to_local(src: str, cache_dir=None, filelock='.file.lock', verbose=False) -> str:
     """Copy src from hdfs to local if src is on hdfs or directly return src.
     If cache_dir is None, we will use the default cache dir of the system. Note that this may cause conflicts if
     the src name is the same between calls
@@ -66,7 +66,29 @@ def copy_to_local(src: str, cache_dir=None, filelock='.file.lock', verbose=False
     Returns:
         a local path of the copied file
     """
+    return copy_local_path_from_hdfs(src, cache_dir, filelock, verbose)'''
+def copy_to_local(src: str, cache_dir=None, filelock='.file.lock', verbose=False) -> str:
+    """Copy src from HDFS to local if it's an hdfs:// path;
+    if it's an existing local path or a HuggingFace Hub ID, return it directly.
+    """
+    import os
+
+    # 1) 本地已存在的文件/目录，直接返回
+    if isinstance(src, str) and os.path.exists(src):
+        return src
+
+    # 2) HDFS 路径（以 hdfs:// 开头），走原来的拷贝逻辑
+    if isinstance(src, str) and src.startswith("hdfs://"):
+        return copy_local_path_from_hdfs(src, cache_dir, filelock, verbose)
+
+    # 3) HuggingFace Hub ID（包含 '/' 且本地不存在），直接返回，
+    #    让 transformers 或 vLLM 自动从 Hub 下载
+    if isinstance(src, str) and "/" in src:
+        return src
+
+    # 4) 其它情况仍尝试 HDFS 拷贝
     return copy_local_path_from_hdfs(src, cache_dir, filelock, verbose)
+
 
 
 def copy_local_path_from_hdfs(src: str, cache_dir=None, filelock='.file.lock', verbose=False) -> str:
