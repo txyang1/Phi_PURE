@@ -14,8 +14,8 @@
 # # 把 data: 这一块改成这样
 data:
   # 只改这两行，指向 phi.data_path
-  train_files: "./data/gsm_test.json"    # 例如 "./data/math_test.json"
-  val_files: []                     # 如果不需要验证集，可以置为空列表
+  train_files: /home/hk-project-p0022560/hgf_sap9939/PURE/phi/data/gsm_test.parquet    # 例如 "./data/math_test.json"phi/data/gsm_test.json
+  val_files: null #[/home/hk-project-p0022560/hgf_sap9939/PURE/aime2024.parquet, /home/hk-project-p0022560/hgf_sap9939/PURE/math500.parquet]                     # 如果不需要验证集，可以置为空列表
   tokenizer: null
   chat_template: null
   prompt_key: input                 # JSON 里的字段——你在 phi 数据里是 "input"
@@ -30,7 +30,7 @@ data:
   
 phi:
   model_id: "Qwen2p5"
-  model_path: "Qwen/Qwen2.5-3B"
+  model_path: Qwen/Qwen2.5-3B
   gpus: 1
   datasets: "math"
   data_path: "./data/gsm_test.json"
