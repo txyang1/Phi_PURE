@@ -16,6 +16,7 @@ Note that we don't combine the main with ray_trainer as ray_trainer is used by o
 """
 import hydra
 import ray
+from ray.util.placement_group import placement_group
 
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 
@@ -39,6 +40,7 @@ def run_ppo(config, compute_score=None):
                     "CUDA_LAUNCH_BLOCKING": "1",
                 }
             },
+            #num_gpus=config.phi.gpus,
             # debug mode
             local_mode=config.trainer.get('debug', False),
         )
@@ -92,12 +94,24 @@ def main_task(config, compute_score=None):
         raise NotImplementedError
 
     from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
-
     role_worker_mapping = {
         Role.ActorRollout: ray.remote(ActorRolloutRefWorker),
         Role.Critic: ray.remote(CriticWorker),
         Role.RefPolicy: ray.remote(ActorRolloutRefWorker)
     }
+    # 拿到 config.phi.gpus
+    #gpu_count = config.phi.gpus
+
+    # # 动态生成 RemoteClass
+    # ActorRolloutRemote = ray.remote(num_gpus=1)(ActorRolloutRefWorker)
+    # CriticRemote        = ray.remote(num_gpus=0)(CriticWorker)
+    # RefPolicyRemote     = ray.remote(num_gpus=0)(ActorRolloutRefWorker)
+
+    # role_worker_mapping = {
+    #     Role.ActorRollout: ActorRolloutRemote,
+    #     Role.Critic:        CriticRemote,
+    #     Role.RefPolicy:     RefPolicyRemote,
+    # }
 
     global_pool_id = 'global_pool'
     resource_pool_spec = {

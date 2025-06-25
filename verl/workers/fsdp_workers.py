@@ -47,6 +47,7 @@ from verl.utils.import_utils import import_external_libs
 from verl.utils.model import compute_position_id_with_mask
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 from phi.phi_decoding import PhiDecoder  
+import ray
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv('VERL_PPO_LOGGING_LEVEL', 'WARN'))
@@ -75,7 +76,7 @@ def get_sharding_strategy(device_mesh):
         raise NotImplementedError(f"Get device mesh ndim={device_mesh.ndim}, but only support 1 or 2")
     return sharding_strategy
 
-import argparse
+'''import argparse
 from types import SimpleNamespace
 from omegaconf import DictConfig
 
@@ -139,6 +140,41 @@ def parse_arguments_from_my_config(phi_cfg: DictConfig) -> argparse.Namespace:
                         help='Path to save timing information')
     parser.add_argument('--seed', type=int, default=0,
                         help='Random seed')
+    parser.add_argument('--max_model_len', type=int, default=32768,
+                    help='Maximum context length for the model')
+    # parser.add_argument('--executor', type=str, default='multiprocess',
+    #                     help='Executor backend for vLLM ("multiprocess" or "ray")')
+    # parser.add_argument('--temperature', type=float, default=1.0,
+    #                     help='Sampling temperature for vLLM')
+    # parser.add_argument('--top_p', type=float, default=1.0,
+    #                     help='Top-p sampling for vLLM')
+    # parser.add_argument('--top_k', type=int, default=-1,
+    #                     help='Top-k sampling for vLLM')
+    # —— vLLM rollout 并行/执行器 配置 ——  
+    parser.add_argument(
+        "--distributed_executor_backend",
+        type=str,
+        default="multiprocess",
+        help="Executor backend for rollout (multiprocess or ray)"
+    )
+    parser.add_argument(
+        "--tensor_parallel_size",
+        type=int,
+        default=1,
+        help="Tensor model parallel size"
+    )
+    parser.add_argument(
+        "--pipeline_parallel_size",
+        type=int,
+        default=1,
+        help="Pipeline parallel size"
+    )
+    parser.add_argument(
+        "--data_parallel_size",
+        type=int,
+        default=1,
+        help="Data parallel size"
+    )
 
     # 此时 parser 中已经定义了所有选项，下面把默认值先 read 一遍，放到一个简单的 Namespace 里
     args = parser.parse_args(args=[])  # 不从 sys.argv 中读取任何值，得到的是所有默认值
@@ -176,8 +212,25 @@ def parse_arguments_from_my_config(phi_cfg: DictConfig) -> argparse.Namespace:
     args.file_name = safe_get(phi_cfg, 'file_name', args.file_name)
     args.time_path = safe_get(phi_cfg, 'time_path', args.time_path)
     args.seed = safe_get(phi_cfg, 'seed', args.seed)
+    args.max_model_len = safe_get(phi_cfg, 'max_model_len', args.max_model_len)
+    #args.executor = safe_get(phi_cfg, 'executor', args.executor)
+    # args.temperature = safe_get(phi_cfg, 'temperature', args.temperature)
+    # args.top_p = safe_get(phi_cfg, 'top_p', args.top_p)
+    # args.top_k = safe_get(phi_cfg, 'top_k', args.top_k)
+    args.distributed_executor_backend = safe_get(
+        phi_cfg, "distributed_executor_backend", args.distributed_executor_backend
+    )
+    args.tensor_parallel_size = safe_get(
+        phi_cfg, "tensor_parallel_size", args.tensor_parallel_size
+    )
+    args.pipeline_parallel_size = safe_get(
+        phi_cfg, "pipeline_parallel_size", args.pipeline_parallel_size
+    )
+    args.data_parallel_size = safe_get(
+        phi_cfg, "data_parallel_size", args.data_parallel_size
+    )
 
-    return args
+    return args'''
 
 class ActorRolloutRefWorker(Worker):
     """
@@ -249,9 +302,11 @@ class ActorRolloutRefWorker(Worker):
                                                            self.ulysses_sequence_parallel_size)
             self.config.ref.log_prob_micro_batch_size_per_gpu = self.config.ref.log_prob_micro_batch_size
         
-        phi_args = parse_arguments_from_my_config(config.phi)
-        self.phi_decoder = PhiDecoder(phi_args)
-
+        # phi_args = parse_arguments_from_my_config(config.phi)
+        # self.phi_decoder = PhiDecoder(phi_args)
+        # 只有在 rollout（ActorRollout）阶段才初始化 PhiDecoder
+        self.phi_decoder = None
+        
     def _build_model_optimizer(self,
                                model_path,
                                fsdp_config,
@@ -410,7 +465,7 @@ class ActorRolloutRefWorker(Worker):
         return actor_module_fsdp, actor_optimizer, actor_lr_scheduler, actor_model_config
 
     def _build_rollout(self):
-        '''from torch.distributed.device_mesh import init_device_mesh
+        from torch.distributed.device_mesh import init_device_mesh
 
         # TODO(sgm): support FSDP hybrid shard for larger model
         infer_tp = self.config.rollout.tensor_model_parallel_size
@@ -459,8 +514,7 @@ class ActorRolloutRefWorker(Worker):
             log_gpu_memory_usage('After building sharding manager', logger=None)
 
 
-        return rollout, rollout_sharding_manager'''
-        return None, None
+        return rollout, rollout_sharding_manager
 
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
@@ -511,6 +565,8 @@ class ActorRolloutRefWorker(Worker):
 
         if self._is_rollout:
             self.rollout, self.rollout_sharding_manager = self._build_rollout()
+            # phi_args = parse_arguments_from_my_config(self.config.phi)
+            # self.phi_decoder = PhiDecoder(phi_args)
 
         if self._is_ref:
             self.ref_module_fsdp = self._build_model_optimizer(model_path=self.config.model.path,
@@ -522,6 +578,12 @@ class ActorRolloutRefWorker(Worker):
                                                                    'trust_remote_code', False),
                                                                use_liger=self.config.model.get('use_liger', False),
                                                                role='ref')[0]
+            # #load Phi model
+            # phi_args["engine_args"] = {
+            #         "distributed_executor_backend": "mp"}
+            # phi_args = parse_arguments_from_my_config(self.config.phi)
+            # self.phi_decoder = PhiDecoder(phi_args) 
+
             OmegaConf.set_struct(self.config.ref, True)
             with open_dict(self.config.ref):
                 self.config.ref.use_remove_padding = use_remove_padding
@@ -581,7 +643,7 @@ class ActorRolloutRefWorker(Worker):
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def generate_sequences(self, prompts: DataProto):
-        '''prompts = prompts.to('cuda')
+        prompts = prompts.to('cuda')
 
         assert self._is_rollout
         if self._is_offload_param:
@@ -619,7 +681,7 @@ class ActorRolloutRefWorker(Worker):
         # clear kv cache
         torch.cuda.empty_cache()
         log_gpu_memory_usage('After recompute log prob', logger=logger)
-        return output'''
+        return output
         """
         覆盖原来调用 vLLM 的 generate_sequences，改为“PhiDecoder 推理 + 打包 DataProto”：
           1. 从 data.non_tensor_batch['raw_chat'] 中拿到一批纯文本 prompt
@@ -631,7 +693,7 @@ class ActorRolloutRefWorker(Worker):
           5. 对不同长度的 token ID 及 reward 进行 pad，构造成张量 (B, max_resp_len)
           6. 生成对应的 attention_mask、position_ids，并把所有内容塞回 DataProto，以 key "responses", "attention_mask", "position_ids", "token_level_rewards" 返回
         """
-        assert self._is_rollout
+        '''assert self._is_rollout
         data = prompts
         # 1. 先从 non_tensor_batch 里拿纯文本 prompt 列表
         raw_chats = data.non_tensor_batch.get('raw_chat', None)
@@ -706,7 +768,7 @@ class ActorRolloutRefWorker(Worker):
             "position_ids": position_ids,            # 位置编号，一般从 0 开始
             "token_level_rewards": batch_token_rewards  # 关键：把 combined_weights / advantage 作为 token‐级奖励
         })
-        return out.to("cpu")
+        return out.to("cpu")'''
 
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)

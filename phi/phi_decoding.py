@@ -29,7 +29,10 @@ from .data.math_example import (
 )
 
 # set visible gpus
-os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
+# 强制使用 spawn 方法
+os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
+
 
 
 # Constants for algorithm configuration
@@ -132,13 +135,34 @@ class PhiDecoder:
         if not self.tokenizer.pad_token:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
+        # self.model = LLM(
+        #     model=model_path,
+        #     tensor_parallel_size=self.args.gpus,
+        #     trust_remote_code=True,
+        #     max_model_len=getattr(self.args, "max_model_len", 4096),  # Default max model length
+        #     #max_model_len=32768
+        #     distributed_executor_backend="mp",
+        #     # 并行维度配置
+        #     tensor_parallel_size=getattr(self.args, "tensor_parallel_size", self.args.gpus),
+        #     pipeline_parallel_size=getattr(self.args, "pipeline_parallel_size", 1),
+        #     data_parallel_size=getattr(self.args, "data_parallel_size", 1),
+        # )
         self.model = LLM(
             model=model_path,
-            tensor_parallel_size=self.args.gpus,
+            #executor=self.args.executor,                    # ← 这里改成 multiprocess
+            distributed_executor_backend=self.args.distributed_executor_backend,
+            tensor_parallel_size=self.args.tensor_parallel_size,
+            pipeline_parallel_size=self.args.pipeline_parallel_size,
+            data_parallel_size=self.args.data_parallel_size,
             trust_remote_code=True,
-            max_model_len=32768
+            max_model_len=getattr(self.args, "max_model_len", 4096),
+            # 新版本必须给 sampling_params
+            # temperature=self.args.temperature,
+            # top_k=self.args.top_k,
+            # top_p=self.args.top_p,
+            # use_fire_sampling=False,
         )
-
+        
         np.random.seed(self.args.seed)
 
     def _get_model_path(self):
