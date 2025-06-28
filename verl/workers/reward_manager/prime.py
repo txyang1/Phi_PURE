@@ -115,7 +115,7 @@ class PrimeRewardManager:
         response_ids = data.batch['responses']
         valid_response_length = data.batch['attention_mask'][:, prompt_length:].sum(dim=-1)
         sequences_str = self.tokenizer.batch_decode(response_ids, skip_special_tokens=True)
-        ground_truth = [data_item.non_tensor_batch['answer'] for data_item in data]
+        ground_truth = [data_item.non_tensor_batch['extra_info']['answer'] for data_item in data] # tx_ answers are stored in extra_info['answer'] in the data items
         default_data_sources = ['numina_aops_forum'] * len(sequences_str)  # tricky: force to use prime_math.compute_score
         data_sources = data.batch.get('data_sources', default_data_sources)
 
