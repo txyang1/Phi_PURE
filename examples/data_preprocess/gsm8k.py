@@ -156,6 +156,7 @@ if __name__ == '__main__':
                     "style": "rule",
                     "ground_truth": solution
                 },
+                #"answer": answer_raw,
                 "extra_info": {
                     'split': split,
                     'index': idx,
