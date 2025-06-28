@@ -352,7 +352,7 @@ class vLLMRollout(BaseRollout):
 
         # —— 2. 从 DataProto 拿原始 prompt —— 
         idx            = prompts.batch['input_ids']       # (bs, prompt_len)
-        print(f"idx: {idx.size()}")### B
+        # print(f"idx: {idx.size()}")### bs
         attention_mask = prompts.batch['attention_mask']  # (bs, prompt_len)
         device         = idx.device
 
@@ -675,7 +675,13 @@ class vLLMRollout(BaseRollout):
     #         # 拼接
     #         seq_cat = torch.cat([idx_rep, resp_padd], dim=1)
     #         delta   = torch.arange(1, resp_padd.size(1)+1, device=device).unsqueeze(0).expand(rep, -1)
-    #         pos_cat = torch.cat([pos_rep, pos_rep[:, -1:].unsqueeze(1) + delta], dim=1)
+    #         # 从 pos_rep 中取出最后一个位置 id
+    #         last_pos = pos_rep[:, -1].unsqueeze(1)  # [B*n, 1]
+    #         # 加上 delta，得到响应部分的 position_ids
+    #         pos_right = last_pos + delta           # [B*n, L_resp]
+    #         # 最终拼接
+    #         pos_cat = torch.cat([pos_rep, pos_right], dim=1)  # [B*n, L_prompt + L_resp]
+
     #         eos_m   = get_eos_mask(response_id=resp_padd, eos_token=self.tokenizer.eos_token_id, dtype=att_rep.dtype)
     #         att_cat = torch.cat([att_rep, eos_m], dim=1)
 
@@ -696,193 +702,4 @@ class vLLMRollout(BaseRollout):
     #     }, batch_size= B * beam_size * num_rollout)
 
     #     return DataProto(batch=batch)
-
-
-
-
-    '''@torch.no_grad()
-    def _phi_decode_single(self, single: DataProto, **kwargs) -> DataProto:
-        cfg = self.config
-        B_prompt = single.batch["input_ids"].size(0)  # 应该是 1
-        assert B_prompt == 1, "单条输入预期 batch_size=1"
-
-        # —— 1. 超参 —— 
-        beam_size     = int(kwargs.get("step_beam_size",   cfg.step_beam_size))
-        num_rollout   = int(kwargs.get("num_rollout",               cfg.num_rollout))
-        num_foresight = int(kwargs.get("num_foresight",   cfg.num_foresight))
-        temperature   = float(kwargs.get("temperature",    cfg.temperature))
-        response_len  = int(kwargs.get("response_length", cfg.response_length))
-
-        # —— 2. 拿 prefix 张量 —— 
-        prefix_ids      = single.batch["input_ids"]       # [1, L_p]
-        prefix_attn     = single.batch["attention_mask"]  # [1, L_p]
-        prefix_pos_ids  = single.batch["position_ids"]    # [1, L_p]
-        device          = prefix_ids.device
-        system_prompt   = single.meta_info.get("system_prompt", DEFAULT_SYSTEM_PROMPT)
-
-        # —— 3. Phi 前瞻循环（与之前相同，生成 prev_steps）—— 
-        prev_steps  = [""] * beam_size
-        prev_values = [0.0] * beam_size
-        base_sp = SamplingParams(
-            max_tokens  = response_len,
-            logprobs    = 1,
-            temperature = temperature,
-            n           = num_rollout,
-            stop        = ["<end_of_reasoning>"]
-        )
-        for _ in range(num_foresight):
-            all_inputs = []
-            for b in range(beam_size):
-                txt = system_prompt + prev_steps[b]
-                all_inputs += [txt] * num_rollout
-            prompt_ids = [self.tokenizer.encode(t, add_special_tokens=False)
-                          for t in all_inputs]
-            outs = self.inference_engine.generate(
-                prompts=None,
-                sampling_params=base_sp,
-                prompt_token_ids=prompt_ids,
-                use_tqdm=False
-            )
-            all_resp, all_lp, all_adv = [], [], []
-            for b in range(beam_size):
-                for j in range(num_rollout):
-                    o   = outs[b].outputs[j]
-                    txt = o.text.strip()
-                    lp  = o.cumulative_logprob / (len(o.token_ids)+1e-8)
-                    adv = lp - prev_values[b]
-                    all_resp.append(txt)
-                    all_lp  .append(lp)
-                    all_adv .append(adv)
-
-            # low_sigma 剪枝
-            μ, σ = np.mean(all_lp), np.std(all_lp)
-            keep = [i for i,v in enumerate(all_lp) if v > μ - cfg.sigma_rate*σ]
-            if len(keep) < beam_size:
-                w = np.exp(np.array(all_adv)/temperature); w /= w.sum()
-                extra = np.random.choice(len(all_adv),
-                                         beam_size-len(keep),
-                                         replace=False,
-                                         p=w.tolist())
-                keep += extra.tolist()
-            keep.sort()
-
-            # cluster 剪枝
-            cand   = [all_resp[i] for i in keep]
-            X      = TfidfVectorizer().fit_transform(cand)
-            labels = KMeans(n_clusters=cfg.cluster_num).fit_predict(X)
-            if np.bincount(labels).max() / len(labels) >= cfg.threshold:
-                break
-
-            # 每簇选 1 条
-            new_steps, new_vals = [], []
-            for c in range(cfg.cluster_num):
-                idxs = [i for i,lab in enumerate(labels) if lab==c]
-                if not idxs: continue
-                advs = np.array([all_adv[keep[i]] for i in idxs])
-                wts  = np.exp(advs/temperature); wts /= wts.sum()
-                pick = np.random.choice(idxs, p=wts.tolist())
-                origin = keep[pick]
-                beam_i = origin // num_rollout
-                new_steps.append(prev_steps[beam_i] + all_resp[origin] + "\n")
-                new_vals .append(all_lp[origin])
-                if len(new_steps) >= beam_size:
-                    break
-            while len(new_steps) < beam_size:
-                new_steps.append(new_steps[-1]); new_vals.append(new_vals[-1])
-            prev_steps, prev_values = new_steps, new_vals
-
-        # —— 4. 最后一轮，每个 beam 再各 sample 1 次 —— 
-        final_prompts_ids = [
-            self.tokenizer.encode(system_prompt + prev_steps[b], add_special_tokens=False)
-            for b in range(beam_size)
-        ]
-        final_sp = SamplingParams(
-            max_tokens  = response_len,
-            logprobs    = 1,
-            temperature = temperature,
-            n           = 1,
-            stop        = ["<end_of_reasoning>"]
-        )
-        final_outs = self.inference_engine.generate(
-            prompts=None,
-            sampling_params=final_sp,
-            prompt_token_ids=final_prompts_ids,
-            use_tqdm=False,
-        )
-
-        # —— 5. 收集并 pad —— 
-        # 5.1 收集 raw resp_ids
-        resp_tensors: List[torch.Tensor] = []
-        for b in range(beam_size):
-            out = final_outs[b].outputs[0]
-            rid = self.tokenizer.encode(out.text.strip(), add_special_tokens=False)
-            resp_tensors.append(torch.tensor(rid, device=device))
-
-        # 5.2 pad_sequence 到 same length
-        resp_padded: torch.Tensor = torch.nn.utils.rnn.pad_sequence(
-            resp_tensors, batch_first=True, padding_value=self.tokenizer.pad_token_id
-        )  # [beam_size, L_resp_max]
-
-        # 5.3 重复 prefix 张量 beam_size 次
-        prompt_rep   = prefix_ids.repeat(beam_size, 1)        # [beam_size, L_p]
-        prefix_attn  = prefix_attn.repeat(beam_size, 1)       # [beam_size, L_p]
-        prefix_pos   = prefix_pos_ids.repeat(beam_size, 1)    # [beam_size, L_p]
-
-        # 5.4 构造完整 input_ids
-        seqs = torch.cat([prompt_rep, resp_padded], dim=1)    # [beam_size, L_p+L_resp]
-
-        # 5.5 构造 attention_mask
-        resp_attn = get_eos_mask(
-            response_id=resp_padded, 
-            eos_token=self.tokenizer.eos_token_id,
-        )                                                     # [beam_size, L_resp]
-        full_attn = torch.cat([prefix_attn, resp_attn], dim=1)  # [beam_size, L_p+L_resp]
-
-        # 5.6 构造 position_ids
-        last_pos = prefix_pos[:, -1].unsqueeze(1)               # [beam_size,1]
-        delta    = torch.arange(1, resp_padded.size(1)+1, device=device)\
-                        .unsqueeze(0).expand(beam_size, -1)    # [beam_size, L_resp]
-        resp_pos = last_pos + delta                             # [beam_size, L_resp]
-        full_pos = torch.cat([prefix_pos, resp_pos], dim=1)     # [beam_size, L_p+L_resp]
-
-        # 5.7 打包 TensorDict & 返回
-        td = TensorDict({
-            "prompts":        prompt_rep,
-            "responses":      resp_padded,
-            "input_ids":      seqs,
-            "attention_mask": full_attn,
-            "position_ids":   full_pos,
-        }, batch_size=beam_size)
-
-        return DataProto(batch=td, meta_info=single.meta_info)
-
-
-    @torch.no_grad()
-    def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
-        # 与之前方案二相同：循环调用 _phi_decode_single，
-        # 最后拼成 B*beam_size 条
-        idx = prompts.batch["input_ids"]
-        att= prompts.batch["attention_mask"]
-        pos= prompts.batch["position_ids"]
-        B  = idx.size(0)
-
-        all_td: List[TensorDict] = []
-        for i in range(B):
-            single = DataProto(
-                batch=TensorDict({
-                    "input_ids":      idx[i:i+1],
-                    "attention_mask": att[i:i+1],
-                    "position_ids":   pos[i:i+1],
-                }, batch_size=1),
-                meta_info=prompts.meta_info
-            )
-            out_td = self._phi_decode_single(single, **kwargs).batch
-            all_td.append(out_td)
-
-        # 拼接
-        final_td = TensorDict({
-            k: torch.cat([td[k] for td in all_td], dim=0)
-            for k in all_td[0]
-        }, batch_size=B * self.config.step_beam_size)
-
-        return DataProto(batch=final_td, meta_info=prompts.meta_info)'''
+    
