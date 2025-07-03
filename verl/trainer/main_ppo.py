@@ -60,7 +60,8 @@ def main_task(config, compute_score=None):
     # modify chat template to avoid string escaping
     OmegaConf.set_struct(config, True)
     with open_dict(config):
-        config.data.chat_template = '{}\n\nPlease reason step by step with steps separated by "\n\n", and put your final answer within \\boxed{{}}.'
+        config.data.chat_template = '{}\n\nPlease solve the following problem step by step.\nWhen you reach the answer, please include the answer in the box format \\boxed{{}} and finish the reasoning with <end_of_reasoning>.'
+        #config.data.chat_template = '{}\n\nPlease reason step by step with steps separated by "\n\n", and put your final answer within \\boxed{{}}.'
         # debug mode
         if config.trainer.get('debug', False):
             config.trainer.logger = ['console']
