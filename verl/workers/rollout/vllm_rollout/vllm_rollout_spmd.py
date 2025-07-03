@@ -40,6 +40,7 @@ from vllm import LLM, SamplingParams
 from verl.third_party.vllm import vllm_version
 
 import numpy as np
+from scipy.special import softmax
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.cluster import KMeans
 from transformers import AutoTokenizer
@@ -546,10 +547,11 @@ class vLLMRollout(BaseRollout):
     #     }, batch_size=Bn)  
 
     #     return DataProto(batch=batch)
-    @torch.no_grad()
+
+    '''@torch.no_grad()
     def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
         """
-        多步 Phi-Decoding，batch 维度并行版
+        多步 Phi-Decoding，batch 维度并行
         """
         # —— 1. 超参数 —— 
         beam_size       = int(kwargs.get("step_beam_size",   self.config.step_beam_size))
@@ -561,6 +563,8 @@ class vLLMRollout(BaseRollout):
         temperature     = float(kwargs.get("temperature",    self.config.temperature))
         step_response_len = int(kwargs.get("step_response_length", self.config.step_response_length))
         response_len    = int(kwargs.get("response_length",  self.config.response_length))
+
+        system_prompt = DEFAULT_SYSTEM_PROMPT
 
         # —— 2. 解码 raw prompts —— 
         idx            = prompts.batch["input_ids"]         # [bs, Lp]
@@ -588,6 +592,7 @@ class vLLMRollout(BaseRollout):
             for b in range(bs):
                 for k in range(beam_size):
                     prefix = (
+                        f"{system_prompt}\n\n"
                         f"\nUser: {raw_prompts[b].strip()}\n"
                         f"Reasoning so far:\n{prev_steps[b][k]}"
                     )
@@ -650,7 +655,7 @@ class vLLMRollout(BaseRollout):
                     keep += extra
                 keep.sort()
 
-                # —— 聚类 + 深度剪枝 cluster —— 
+                #—— 聚类 + 深度剪枝 cluster —— 
                 cand   = [resp_slice[i] for i in keep]
                 X      = TfidfVectorizer().fit_transform(cand)
                 labels = KMeans(n_clusters=cluster_num).fit_predict(X)
@@ -671,35 +676,87 @@ class vLLMRollout(BaseRollout):
                         picked.append(keep[j])
                         if len(picked) == beam_size:
                             break
-
-                # —— 更新第 b 个样本的 beam —— 
                 for k, sel in enumerate(picked):
-                    origin_beam = sel // num_rollout
-                    new_steps[b][k]  = prev_steps[b][origin_beam] + resp_slice[sel] + "\n"
-                    new_values[b][k] = lp_slice[sel]
+                    origin_beam = keep[sel] // num_rollout
+                    new_steps[b][k]  = prev_steps[b][origin_beam] + resp_slice[keep[sel]] + "\n"
+                    new_values[b][k] = lp_slice[keep[sel]]
+                # # —— 构造 cand & adv_k —— 
+                # cand   = [resp_slice[i] for i in keep]
+                # adv_k  = np.array([adv_slice[i] for i in keep])
+
+                # # —— 过滤空回答，记录它们在 keep 中的原始位置 —— 
+                # filtered_idx_in_keep = [i for i, txt in enumerate(cand) if txt.strip()]
+                # if len(filtered_idx_in_keep) == 0:
+                #     # 全空，fallback 到全集
+                #     filtered_idx_in_keep = list(range(len(keep)))
+                
+                # # filtered_idx_in_keep: keep 中“有效”位置
+                # texts = [ cand[i] for i in filtered_idx_in_keep ]
+                # advs  = adv_k[filtered_idx_in_keep]
+                # F     = len(texts)
+
+                # do_cluster = True
+                # if len(texts) < 2:
+                #     # 文本太少，不要聚类
+                #     do_cluster = False
+                # else:
+                #     # 再试一次 TF–IDF，看能不能成功
+                #     try:
+                #         _ = TfidfVectorizer(token_pattern=r"(?u)\b\w+\b", min_df=1).fit(texts)
+                #     except ValueError:
+                #         do_cluster = False
+
+                # if do_cluster:
+                #     # 正常聚类流程
+                #     vectorizer = TfidfVectorizer(token_pattern=r"(?u)\b\w+\b", min_df=1)
+                #     X = vectorizer.fit_transform(texts)
+                #     labels = KMeans(n_clusters=min(cluster_num, len(texts)), n_init="auto").fit_predict(X)
+                #     counts = np.bincount(labels, minlength=min(cluster_num, len(texts)))
+                #     size_ratios = counts[labels] / counts.sum()
+                #     cluster_w = softmax(size_ratios)
+                # else:
+                #     # fallback：把所有项平等看成一个簇
+                #     cluster_w = np.ones(len(texts)) / len(texts)
+
+                # # 计算 adv 权重
+                # adv_w = softmax(np.array(advs) / temperature)
+
+                # # 合并
+                # combined = 0.5 * cluster_w + 0.5 * adv_w
+                # combined /= combined.sum()
+
+                # replace_flag = (F < beam_size)
+                # sel_in_filtered = np.random.choice(F, size=beam_size, replace=replace_flag, p=combined)
+
+                # # 1) 还原到 keep 索引空间
+                # sel_in_keep = [ filtered_idx_in_keep[i] for i in sel_in_filtered ]
+
+                # # 2) 还原到 flat idx（resp_slice, lp_slice 对应的扁平范围）
+                # flat_idxs = [ keep[i] for i in sel_in_keep ]
+
+                # # 3) 最终更新
+                # for k, flat_idx in enumerate(flat_idxs):
+                #     origin_beam = flat_idx // num_rollout
+                #     new_steps[b][k]  = prev_steps[b][origin_beam] + resp_slice[flat_idx] + "\n"
+                #     new_values[b][k] = lp_slice[flat_idx]
 
             prev_steps, prev_values = new_steps, new_values
 
+        #print(f"prev_steps: {prev_steps}")###check prev_steps
+
         # —— 6. 最后一轮并行生成最终答案 —— 
-        # final_prompts = []
-        # for b in range(bs):
-        #     for k in range(beam_size):
-        #         txt = (
-        #             f"\nUser: {raw_prompts[b].strip()}\n"
-        #             f"Reasoning so far:\n{prev_steps[b][k]}"
-        #         )
-        #         ids = self.tokenizer.encode(txt, add_special_tokens=False)
-        #         final_prompts += [ids] * self.config.n
         final_prompts = []
         for b in range(bs):
+            best_k = int(np.argmax(prev_values[b]))
             # 只取每个 batch 的 top-1 beam
             txt = (
-                f"\nUser: {raw_prompts[b].strip()}\n"
-                f"Reasoning so far:\n{prev_steps[b][0]}"
+                f"{system_prompt}\n\n"
+                f"User: {raw_prompts[b].strip()}\n"
+                f"Reasoning so far:\n{prev_steps[b][best_k]}"
             )
             ids = self.tokenizer.encode(txt, add_special_tokens=False)
             final_prompts += [ids] * self.config.n  # n为每个prompt采样数量
-
+        
         final_sp = SamplingParams(
             max_tokens = response_len,
             logprobs   = 1,
@@ -713,6 +770,7 @@ class vLLMRollout(BaseRollout):
             prompt_token_ids=final_prompts,
             use_tqdm=False
         )
+        #print(f"final_outs: {final_outs}")###check final_outs
 
         # —— 收集并返回 DataProto —— 
         responses = [out.outputs[0].token_ids for out in final_outs]
@@ -746,8 +804,286 @@ class vLLMRollout(BaseRollout):
             "position_ids":   pos_ids,
         }, batch_size=Bn)
 
+        return DataProto(batch=batch)'''
+
+    @torch.no_grad()
+    def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
+        """
+        多步 Phi-Decoding，batch 维度并行版
+        """
+        # —— 1. 超参数 ——
+        beam_size       = int(kwargs.get("step_beam_size",   self.config.step_beam_size))
+        num_rollout     = int(kwargs.get("num_rollout",      self.config.num_rollout))
+        num_foresight   = int(kwargs.get("num_foresight",    self.config.num_foresight))
+        threshold       = float(kwargs.get("threshold",      self.config.threshold))
+        sigma_rate      = float(kwargs.get("sigma_rate",     self.config.sigma_rate))
+        cluster_num     = int(kwargs.get("cluster_num",      self.config.cluster_num))
+        temperature     = float(kwargs.get("temperature",    self.config.temperature))
+        step_response_len = int(kwargs.get("step_response_length", self.config.step_response_length))
+        response_len    = int(kwargs.get("response_length",  self.config.response_length))
+
+        system_prompt = DEFAULT_SYSTEM_PROMPT
+
+        # —— 2. 解码 raw prompts ——
+        idx            = prompts.batch["input_ids"]         # [bs, Lp]
+        device         = idx.device
+        bs             = idx.size(0)
+        raw_prompts    = self.tokenizer.batch_decode(idx, skip_special_tokens=True)
+
+        # —— 3. SamplingParams for intermediate rollout ——
+        base_sp = SamplingParams(
+            max_tokens=step_response_len,
+            logprobs=1,
+            temperature=temperature,
+            n=num_rollout,
+            stop=["\n", "<end_of_reasoning>"]
+        )
+
+        # —— 4. 初始化 prev_steps/prev_values 为 [bs][beam_size] ——
+        prev_steps  = [["" for _ in range(beam_size)] for _ in range(bs)]
+        prev_values = [[0.0 for _ in range(beam_size)] for _ in range(bs)]
+
+        # —— 5. 多步前瞻 (num_foresight) ——
+        for depth in range(num_foresight):
+            # —— 阶段1：并行构造所有 prompt ——
+            all_inputs = []
+            for b in range(bs):
+                for k in range(beam_size):
+                    prefix = (
+                        f"{system_prompt}\n\n"
+                        f"User: {raw_prompts[b].strip()}\n"
+                        f"Reasoning so far:\n{prev_steps[b][k]}"
+                    )
+                    all_inputs += [prefix] * num_rollout
+
+            prompt_ids = [self.tokenizer.encode(t, add_special_tokens=False)
+                        for t in all_inputs]
+
+            outs = self.inference_engine.generate(
+                prompts=None,
+                sampling_params=base_sp,
+                prompt_token_ids=prompt_ids,
+                use_tqdm=False
+            )
+
+            # 扁平化收集 all_resp, all_lp
+            flat_R = bs * beam_size * num_rollout
+            all_resp = []
+            all_lp   = []
+            for i in range(flat_R):
+                o    = outs[i].outputs[0]
+                txt  = o.text.strip()
+                lp   = o.cumulative_logprob / (len(o.token_ids) + 1e-8)
+                all_resp.append(txt)
+                all_lp.append(lp)
+
+            # 计算 all_adv
+            all_adv = []
+            for b in range(bs):
+                for k in range(beam_size):
+                    base = (b*beam_size + k)*num_rollout
+                    prev_v = prev_values[b][k]
+                    for j in range(num_rollout):
+                        all_adv.append(all_lp[base + j] - prev_v)
+
+            # Stage2-4：对每个 b 做剪枝和选 beam
+            new_steps  = [["" for _ in range(beam_size)] for _ in range(bs)]
+            new_values = [[0.0 for _ in range(beam_size)] for _ in range(bs)]
+
+            for b in range(bs):
+                # slice for this batch element
+                start = b * beam_size * num_rollout
+                end   = start + beam_size * num_rollout
+                resp_slice = all_resp[start:end]
+                lp_slice   = all_lp[start:end]
+                adv_slice  = np.array(all_adv[start:end])
+
+                # 宽度剪枝 low_sigma
+                mu, sigma = np.mean(lp_slice), np.std(lp_slice)
+                keep = [i for i,v in enumerate(lp_slice) if v > mu - sigma_rate*sigma]
+                if len(keep) < beam_size:
+                    wts = np.exp(adv_slice/temperature)
+                    wts /= wts.sum()
+                    extra = np.random.choice(
+                        len(adv_slice),
+                        beam_size-len(keep),
+                        replace=False,
+                        p=wts
+                    ).tolist()
+                    keep += extra
+                keep.sort()
+
+                # 候选集合
+                cand   = [resp_slice[i] for i in keep]
+                adv_k  = adv_slice[keep]
+
+                # 聚类
+                X      = TfidfVectorizer().fit_transform(cand)
+                labels = KMeans(n_clusters=cluster_num).fit_predict(X)
+
+                # 计算簇比例
+                counts = np.bincount(labels, minlength=cluster_num)
+                cluster_ratios = counts / counts.sum()
+                cluster_weights = softmax(cluster_ratios[labels])
+
+                # 计算增益权重
+                adv_weights = softmax(adv_k/temperature)
+
+                # 合并权重
+                combined_weights = 0.5*cluster_weights + 0.5*adv_weights
+                combined_weights /= combined_weights.sum()
+
+                # 一次性抽 beam_size 条
+                selected_idxs = np.random.choice(
+                    len(keep), size=beam_size, replace=False, p=combined_weights
+                ).tolist()
+                picked = [keep[i] for i in selected_idxs]
+
+                # 更新
+                for k, sel in enumerate(picked):
+                    origin_beam = sel // num_rollout
+                    new_steps[b][k]  = prev_steps[b][origin_beam] + resp_slice[sel] + "\n"
+                    new_values[b][k] = lp_slice[sel]
+
+            prev_steps, prev_values = new_steps, new_values
+        print(f"prev_steps: {prev_steps}")###check prev_steps
+
+        # —— 6. 最后一轮并行生成最终答案 ——(argmax)
+        final_prompts = []
+        for b in range(bs):
+            # 选择最大的 prev_value 对应的 beam
+            best_k = int(np.argmax(prev_values[b]))
+            txt = (
+                f"{system_prompt}\n\n"
+                f"User: {raw_prompts[b].strip()}\n"
+                f"Reasoning so far:\n{prev_steps[b][best_k]}"
+            )
+            print(f"prev_steps[{b}]:{prev_steps[b][best_k]}")###check prev_steps
+            ids = self.tokenizer.encode(txt, add_special_tokens=False)
+            final_prompts += [ids] * self.config.n
+
+        final_sp = SamplingParams(
+            max_tokens = response_len,
+            logprobs   = 1,
+            temperature= temperature,
+            n          = 1,
+            stop       = ["<end_of_reasoning>"]
+        )
+        final_outs = self.inference_engine.generate(
+            prompts=None,
+            sampling_params=final_sp,
+            prompt_token_ids=final_prompts,
+            use_tqdm=False
+        )
+
+        # 收集并返回
+        responses = [ out.outputs[0].token_ids for out in final_outs ]
+        resp_padded = pad_2d_list_to_length(
+            responses, self.tokenizer.pad_token_id, max_length=response_len
+        ).to(device)
+
+        # # —— 6. 最后一轮并行生成最终答案 —— (beam search) batch problem
+        # # 1) 构造 beam_size 个前缀，每个前缀只生成一次完整回答
+        # final_prompts: List[List[int]] = []
+        # for b in range(bs):
+        #     for k in range(beam_size):
+        #         prefix = (
+        #             f"{system_prompt}\n\n"
+        #             f"User: {raw_prompts[b].strip()}\n"
+        #             f"Reasoning so far:\n{prev_steps[b][k]}"
+        #         )
+        #         ids = self.tokenizer.encode(prefix, add_special_tokens=False)
+        #         final_prompts.append(ids)
+
+        # final_sp = SamplingParams(
+        #     max_tokens = response_len,
+        #     logprobs   = 1,
+        #     temperature= temperature,
+        #     n          = 1,
+        #     stop       = ["<end_of_reasoning>"]
+        # )
+        # final_outs = self.inference_engine.generate(
+        #     prompts=None,
+        #     sampling_params=final_sp,
+        #     prompt_token_ids=final_prompts,
+        #     use_tqdm=False
+        # )
+
+        # # 2) 收集 M = bs * beam_size 条 response, logprob, advantage
+        # all_resps = []
+        # all_logps  = []
+        # all_advs   = []
+        # for idx, out in enumerate(final_outs):
+        #     text = out.outputs[0].text.strip()
+        #     lp   = out.outputs[0].cumulative_logprob / (len(out.outputs[0].token_ids) + 1e-8)
+        #     b    = idx // beam_size      # batch 索引
+        #     k    = idx % beam_size       # beam 索引
+        #     adv  = lp - prev_values[b][k]
+
+        #     all_resps.append(text)
+        #     all_logps .append(lp)
+        #     all_advs  .append(adv)
+
+        # # 3) 针对每个 batch 元素 b，用簇+增益权重采样一个 k
+        # selected_prefixes = [0] * bs
+        # for b in range(bs):
+        #     # slice 出这一组 beam_size 条完整回答
+        #     start = b * beam_size
+        #     end   = start + beam_size
+        #     resps = all_resps[start:end]
+        #     advs  = all_advs[start:end]
+
+        #     # —— 聚类权重 —— 
+        #     X = TfidfVectorizer().fit_transform(resps)
+        #     labels = KMeans(n_clusters=cluster_num).fit_predict(X)
+        #     counts = np.bincount(labels, minlength=cluster_num)
+        #     size_ratios = counts[labels] / beam_size        # 每条属于的簇大小比例
+        #     cluster_weights = softmax(size_ratios)          # 归一化
+
+        #     # —— 增益权重 —— 
+        #     adv_weights = softmax(np.array(advs) / temperature)
+
+        #     # —— 合并权重 & 采样 —— 
+        #     combined_weights = (cluster_weights + adv_weights) * 0.5
+        #     combined_weights /= combined_weights.sum()
+        #     sel_k = int(np.random.choice(beam_size, p=combined_weights))
+
+        #     selected_prefixes[b] = sel_k
+
+        # # 4) 将选出的前缀拼接对应回答，打包输出
+        # responses = []
+        # for b in range(bs):
+        #     k = selected_prefixes[b]
+        #     # pick 对应的 final_outs 索引
+        #     idx = b * beam_size + k
+        #     tok_ids = final_outs[idx].outputs[0].token_ids
+        #     responses.append(tok_ids)
+
+        # resp_padded = pad_2d_list_to_length(
+        #     responses, self.tokenizer.pad_token_id, max_length=response_len
+        # ).to(device)####
+
+        # repeat 原 prompt tensors
+        Bn = resp_padded.size(0)
+        repeat_times = Bn // bs
+        idx    = prompts.batch["input_ids"].repeat_interleave(repeat_times, dim=0)
+        mask   = prompts.batch["attention_mask"].repeat_interleave(repeat_times, dim=0)
+        pos_ids= prompts.batch["position_ids"].repeat_interleave(repeat_times, dim=0)
+
+        seq = torch.cat([idx, resp_padded], dim=1)
+        delta = torch.arange(1, response_len+1, device=device).unsqueeze(0).expand(Bn, -1)
+        last_pos = pos_ids[:, -1:].expand(-1, response_len)
+        pos_ids = torch.cat([pos_ids, last_pos+delta], dim=1)
+        resp_attn = get_eos_mask(resp_padded, self.tokenizer.eos_token_id, mask.dtype)
+        mask = torch.cat([mask, resp_attn], dim=1)
+
+        batch = TensorDict({
+            "prompts":        idx,
+            "responses":      resp_padded,
+            "input_ids":      seq,
+            "attention_mask": mask,
+            "position_ids":   pos_ids,
+        }, batch_size=Bn)
+
         return DataProto(batch=batch)
-
-
-
         
