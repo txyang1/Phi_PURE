@@ -806,6 +806,8 @@ class vLLMRollout(BaseRollout):
 
         return DataProto(batch=batch)'''
 
+
+    #rollout 成功版
     @torch.no_grad()
     def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
         """
@@ -850,7 +852,7 @@ class vLLMRollout(BaseRollout):
             for b in range(bs):
                 for k in range(beam_size):
                     prefix = (
-                        f"{system_prompt}\n\n"
+                        #f"{system_prompt}\n\n"
                         f"User: {raw_prompts[b].strip()}\n"
                         f"Reasoning so far:\n{prev_steps[b][k]}"
                     )
@@ -917,20 +919,21 @@ class vLLMRollout(BaseRollout):
                 cand   = [resp_slice[i] for i in keep]
                 adv_k  = adv_slice[keep]
 
-                # 聚类
-                X      = TfidfVectorizer().fit_transform(cand)
-                labels = KMeans(n_clusters=cluster_num).fit_predict(X)
+                # # 聚类
+                # X      = TfidfVectorizer().fit_transform(cand)
+                # labels = KMeans(n_clusters=cluster_num).fit_predict(X)
 
-                # 计算簇比例
-                counts = np.bincount(labels, minlength=cluster_num)
-                cluster_ratios = counts / counts.sum()
-                cluster_weights = softmax(cluster_ratios[labels])
+                # # 计算簇比例
+                # counts = np.bincount(labels, minlength=cluster_num)
+                # cluster_ratios = counts / counts.sum()
+                # cluster_weights = softmax(cluster_ratios[labels])
 
                 # 计算增益权重
                 adv_weights = softmax(adv_k/temperature)
 
                 # 合并权重
-                combined_weights = 0.5*cluster_weights + 0.5*adv_weights
+                #combined_weights = 0.5*cluster_weights + 0.5*adv_weights
+                combined_weights = adv_weights
                 combined_weights /= combined_weights.sum()
 
                 # 一次性抽 beam_size 条
@@ -954,7 +957,7 @@ class vLLMRollout(BaseRollout):
             # 选择最大的 prev_value 对应的 beam
             best_k = int(np.argmax(prev_values[b]))
             txt = (
-                f"{system_prompt}\n\n"
+                #f"{system_prompt}\n\n"
                 f"User: {raw_prompts[b].strip()}\n"
                 f"Reasoning so far:\n{prev_steps[b][best_k]}"
             )
