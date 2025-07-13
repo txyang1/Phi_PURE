@@ -183,7 +183,7 @@ algorithm:
     kl_coef: 0.001
 
 trainer:
-  #val_before_train: false   # 取消训练前的初始验证
+  val_before_train: False   # 取消训练前的初始验证
   debug_mode: False
   total_epochs: 20
   total_training_steps: null
