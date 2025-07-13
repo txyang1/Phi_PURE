@@ -972,8 +972,11 @@ class vLLMRollout(BaseRollout):
                 #f"{system_prompt}\n\n"
                 f"User: {raw_prompts[b].strip()}\n"
                 f"Reasoning so far:\n{prev_steps[b][best_k]}\n"
-                "Final step: Continue the reasoning above and write out the full reasoning process,"
-                #"ending with the answer in the format \\boxed{…} and finish the reasoning with <end_of_reasoning>."
+                "Final step: Please reproduce the entire ‘Reasoning so far’ above in full, "
+                "then continue from that reasoning to write the complete solution and include the final answer in the format \\boxed{…}, "
+                "finishing with <end_of_reasoning>."
+                # "Final step: Continue the reasoning above and write out the full reasoning process,"
+                # "ending with the answer in the format \\boxed{…} and finish the reasoning with <end_of_reasoning>."
             )
             #print(f"raw_prompts[{b}]:{raw_prompts[b]}")###check raw_prompts
             #print(f"prev_steps[{b}]:{prev_steps[b][best_k]}")###check prev_steps
@@ -1097,10 +1100,10 @@ class vLLMRollout(BaseRollout):
         resp_attn = get_eos_mask(resp_padded, self.tokenizer.eos_token_id, mask.dtype)
         mask = torch.cat([mask, resp_attn], dim=1)
 
-        # 假设 seq 是一个 shape [Bn, L] 的 Tensor,检验结果
-        first_ids = seq[0].tolist()  
-        first_text = self.tokenizer.decode(first_ids, skip_special_tokens=True)
-        print(f"First sequence text: {first_text}")  # 打印第一个序列的文本
+        # # 假设 seq 是一个 shape [Bn, L] 的 Tensor,检验结果
+        # first_ids = seq[0].tolist()  
+        # first_text = self.tokenizer.decode(first_ids, skip_special_tokens=True)
+        # print(f"First sequence text: {first_text}")  # 打印第一个序列的文本
 
         batch = TensorDict({
             "prompts":        idx,
