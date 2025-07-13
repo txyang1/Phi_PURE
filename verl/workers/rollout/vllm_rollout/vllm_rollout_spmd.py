@@ -856,7 +856,9 @@ class vLLMRollout(BaseRollout):
                         f"User: {raw_prompts[b].strip()}\n"
                         f"Reasoning so far:\n{prev_steps[b][k]}"
                     )
-                    all_inputs += [prefix] * num_rollout
+                    #all_inputs += [prefix] * num_rollout
+                    all_inputs.append(prefix)    # 不再 * num_rollout
+                    
 
             prompt_ids = [self.tokenizer.encode(t, add_special_tokens=False)
                         for t in all_inputs]
@@ -868,16 +870,26 @@ class vLLMRollout(BaseRollout):
                 use_tqdm=False
             )
 
-            # 扁平化收集 all_resp, all_lp
-            flat_R = bs * beam_size * num_rollout
+            # # 扁平化收集 all_resp, all_lp
+            # flat_R = bs * beam_size * num_rollout
+            # all_resp = []
+            # all_lp   = []
+            # for i in range(flat_R):
+            #     o    = outs[i].outputs[0]
+            #     txt  = o.text.strip()
+            #     lp   = o.cumulative_logprob / (len(o.token_ids) + 1e-8)
+            #     all_resp.append(txt)
+            #     all_lp.append(lp)
+
+            # —— 扁平化收集 all_resp, all_lp
             all_resp = []
             all_lp   = []
-            for i in range(flat_R):
-                o    = outs[i].outputs[0]
-                txt  = o.text.strip()
-                lp   = o.cumulative_logprob / (len(o.token_ids) + 1e-8)
-                all_resp.append(txt)
-                all_lp.append(lp)
+            for out in outs:                     # outs 的长度 = bs * beam_size
+                for o in out.outputs:            # 每个 out.outputs 的长度 = num_rollout
+                    txt = o.text.strip()
+                    lp  = o.cumulative_logprob / (len(o.token_ids) + 1e-8)
+                    all_resp.append(txt)
+                    all_lp.append(lp)
 
             # 计算 all_adv
             all_adv = []
@@ -949,7 +961,7 @@ class vLLMRollout(BaseRollout):
                     new_values[b][k] = lp_slice[sel]
 
             prev_steps, prev_values = new_steps, new_values
-        print(f"prev_steps: {prev_steps}")###check prev_steps
+        #print(f"prev_steps: {prev_steps}")###check prev_steps
 
         # —— 6. 最后一轮并行生成最终答案 ——(argmax)
         final_prompts = []
@@ -959,9 +971,13 @@ class vLLMRollout(BaseRollout):
             txt = (
                 #f"{system_prompt}\n\n"
                 f"User: {raw_prompts[b].strip()}\n"
-                f"Reasoning so far:\n{prev_steps[b][best_k]}"
+                f"Reasoning so far:\n{prev_steps[b][best_k]}\n"
+                "Final step: Continue the reasoning above and write out the full reasoning process,"
+                #"ending with the answer in the format \\boxed{…} and finish the reasoning with <end_of_reasoning>."
             )
-            print(f"prev_steps[{b}]:{prev_steps[b][best_k]}")###check prev_steps
+            #print(f"raw_prompts[{b}]:{raw_prompts[b]}")###check raw_prompts
+            #print(f"prev_steps[{b}]:{prev_steps[b][best_k]}")###check prev_steps
+            #print(f"final_prompt[{b}]:{txt}")###check final_prompt
             ids = self.tokenizer.encode(txt, add_special_tokens=False)
             final_prompts += [ids] * self.config.n
 
@@ -984,6 +1000,7 @@ class vLLMRollout(BaseRollout):
         resp_padded = pad_2d_list_to_length(
             responses, self.tokenizer.pad_token_id, max_length=response_len
         ).to(device)
+        
 
         # # —— 6. 最后一轮并行生成最终答案 —— (beam search) batch problem
         # # 1) 构造 beam_size 个前缀，每个前缀只生成一次完整回答
@@ -1072,7 +1089,7 @@ class vLLMRollout(BaseRollout):
         idx    = prompts.batch["input_ids"].repeat_interleave(repeat_times, dim=0)
         mask   = prompts.batch["attention_mask"].repeat_interleave(repeat_times, dim=0)
         pos_ids= prompts.batch["position_ids"].repeat_interleave(repeat_times, dim=0)
-
+       
         seq = torch.cat([idx, resp_padded], dim=1)
         delta = torch.arange(1, response_len+1, device=device).unsqueeze(0).expand(Bn, -1)
         last_pos = pos_ids[:, -1:].expand(-1, response_len)
@@ -1080,10 +1097,15 @@ class vLLMRollout(BaseRollout):
         resp_attn = get_eos_mask(resp_padded, self.tokenizer.eos_token_id, mask.dtype)
         mask = torch.cat([mask, resp_attn], dim=1)
 
+        # 假设 seq 是一个 shape [Bn, L] 的 Tensor,检验结果
+        first_ids = seq[0].tolist()  
+        first_text = self.tokenizer.decode(first_ids, skip_special_tokens=True)
+        print(f"First sequence text: {first_text}")  # 打印第一个序列的文本
+
         batch = TensorDict({
             "prompts":        idx,
-            "responses":      resp_padded,
-            "input_ids":      seq,
+            "responses":      resp_padded, #response ids
+            "input_ids":      seq, #complete input+response ids
             "attention_mask": mask,
             "position_ids":   pos_ids,
         }, batch_size=Bn)
