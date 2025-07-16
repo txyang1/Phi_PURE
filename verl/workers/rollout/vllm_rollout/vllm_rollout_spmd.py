@@ -1222,13 +1222,18 @@ class vLLMRollout(BaseRollout):
         # pr_tensors = [r + [0.0] * (max_len - len(r)) for r in final_rewards_padded]
         # prm_reward = torch.tensor(pr_tensors, device=device)
         # 使得 prm_reward 的每行长度与 resp_padded 的响应长度一致 (response_len)
+        # prefix_len 是原 prompt 的长度
+        prefix_len = prompts.batch["input_ids"].size(1)
         pr_tensors = []
         for r in final_rewards_padded:
-            # 截断或补齐到 response_len
-            if len(r) >= response_len:
-                row = r[:response_len]
+            # 补 prompt 部分
+            row = [0.0] * prefix_len + r
+            # 如果必要，再截断或补齐到 prefix_len + response_len
+            total_len = prefix_len + response_len
+            if len(row) >= total_len:
+                row = row[:total_len]
             else:
-                row = r + [0.0] * (response_len - len(r))
+                row = row + [0.0] * (total_len - len(row))
             pr_tensors.append(row)
         prm_reward = torch.tensor(pr_tensors, device=device)
 
