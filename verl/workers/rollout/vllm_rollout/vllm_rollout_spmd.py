@@ -1249,25 +1249,31 @@ class vLLMRollout(BaseRollout):
         pos    = torch.cat([pos, last_p+delta], dim=1)
         attn   = get_eos_mask(resp_padded, self.tokenizer.eos_token_id, mask.dtype)
         mask   = torch.cat([mask, attn], dim=1)
-
+        pad_resp = torch.full(
+            (resp_padded.size(0), prefix_len),
+            fill_value=self.tokenizer.pad_token_id,
+            device=device,
+            dtype=resp_padded.dtype
+        )
+        full_responses = torch.cat([pad_resp, resp_padded], dim=1)
         
         batch = TensorDict({
             "prompts":        idx,
-            "responses":      resp_padded,
+            "responses":      full_responses, #response ids
             "input_ids":      seq,
             "attention_mask": mask,
             "position_ids":   pos,
             "prm_reward":     prm_reward,
         }, batch_size=Bn)
 
-        with open("prm_reward_0.txt", "w", encoding="utf-8") as f:
-            f.write(str(prm_reward[0].tolist()))
-        # 将第一个样本的 response 文本保存到文件
-        first_resp_ids = resp_padded[0].tolist()
-        first_resp_text = self.tokenizer.decode(first_resp_ids, skip_special_tokens=True)
-        with open("first_response_0.txt", "w", encoding="utf-8") as f:
-            f.write(first_resp_text)
-        # 可选：打印文件路径以确认
-        print("Saved prm_reward to prm_reward_0.txt and first response to first_response_0.txt")
+        # with open("prm_reward2_0.txt", "w", encoding="utf-8") as f:
+        #     f.write(str(prm_reward[0].tolist()))
+        # # 将第一个样本的 response 文本保存到文件
+        # first_resp_ids = resp_padded[0].tolist()
+        # first_resp_text = self.tokenizer.decode(first_resp_ids, skip_special_tokens=True)
+        # with open("first_response2_0.txt", "w", encoding="utf-8") as f:
+        #     f.write(first_resp_text)
+        # # 可选：打印文件路径以确认
+        # print("Saved prm_reward to prm_reward_0.txt and first response to first_response_0.txt")
 
         return DataProto(batch=batch)
