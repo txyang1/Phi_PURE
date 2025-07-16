@@ -1126,81 +1126,7 @@ class vLLMRollout(BaseRollout):
             use_tqdm=False
         )
 
-        # # —— 构建 final_rewards_padded ——
-        # final_rewards_padded = []
-        # for i, out in enumerate(final_outs):
-        #     gen_text = out.outputs[0].text.strip()
-        #     token_ids = self.tokenizer.encode(gen_text, add_special_tokens=False)
-        #     final_rewards_padded.append(final_rewards[i] + [1.0] * len(token_ids))
-
-        # # —— 7. 用 out.text.strip() 拼接 history，得到完整文本列表，并 tokenize+pad ——
-        # full_texts = []
-        # for history, out in zip(history_list, final_outs):
-        #     gen_text = out.outputs[0].text.strip()
-        #     full_texts.append(history + gen_text)
-        # #print("full_texts[0] 示例：\n", full_texts[0])####check full_texts
-        # full_resp_ids = [
-        #     self.tokenizer.encode(t, add_special_tokens=False)
-        #     for t in full_texts
-        # ]
-        # resp_padded = pad_2d_list_to_length(
-        #     full_resp_ids,
-        #     self.tokenizer.pad_token_id,
-        #     max_length=response_len
-        # ).to(device)
-        # full_texts = []
-        # final_rewards_padded = []
-        # for i, (history, out) in enumerate(zip(history_list, final_outs)):
-        #     gen_text = out.outputs[0].text.strip()
-        #     full_texts.append(history + gen_text)
-        #     token_ids = self.tokenizer.encode(gen_text, add_special_tokens=False)
-        #     final_rewards_padded.append(final_rewards[i] + [1.0] * len(token_ids))
-
-        # # encode & pad responses
-        # full_resp_ids = [
-        #     self.tokenizer.encode(t, add_special_tokens=False)
-        #     for t in full_texts
-        # ]
-        # resp_padded = pad_2d_list_to_length(
-        #     full_resp_ids,
-        #     self.tokenizer.pad_token_id,
-        #     max_length=response_len
-        # ).to(device)
-
-        # # 构建 prm_reward 张量
-        # max_len = max(len(r) for r in final_rewards_padded)
-        # pr_tensors = [r + [0.0] * (max_len - len(r)) for r in final_rewards_padded]
-        # prm_reward = torch.tensor(pr_tensors, device=device)
-
-        # # repeat 原 prompt tensors
-        # Bn = resp_padded.size(0)
-        # repeat_times = Bn // bs
-        # idx    = prompts.batch["input_ids"].repeat_interleave(repeat_times, dim=0)
-        # mask   = prompts.batch["attention_mask"].repeat_interleave(repeat_times, dim=0)
-        # pos_ids= prompts.batch["position_ids"].repeat_interleave(repeat_times, dim=0)
-       
-        # seq = torch.cat([idx, resp_padded], dim=1)
-        # delta = torch.arange(1, response_len+1, device=device).unsqueeze(0).expand(Bn, -1)
-        # last_pos = pos_ids[:, -1:].expand(-1, response_len)
-        # pos_ids = torch.cat([pos_ids, last_pos+delta], dim=1)
-        # resp_attn = get_eos_mask(resp_padded, self.tokenizer.eos_token_id, mask.dtype)
-        # mask = torch.cat([mask, resp_attn], dim=1)
-
-        # # # 假设 seq 是一个 shape [Bn, L] 的 Tensor,检验结果
-        # # first_ids = seq[0].tolist()  
-        # # first_text = self.tokenizer.decode(first_ids, skip_special_tokens=True)
-        # # print(f"First sequence text: {first_text}")  # 打印第一个序列的文本
-
-        # batch = TensorDict({
-        #     "prompts":        idx,
-        #     "responses":      resp_padded, #response ids
-        #     "input_ids":      seq, #complete input+response ids
-        #     "attention_mask": mask,
-        #     "position_ids":   pos_ids,
-        #     "prm_reward":     prm_reward,
-        # }, batch_size=Bn)
-
-        # return DataProto(batch=batch)
+        
         full_texts = []
         final_rewards_padded = []
         for i, (history, out) in enumerate(zip(history_list, final_outs)):
@@ -1218,26 +1144,18 @@ class vLLMRollout(BaseRollout):
         ).to(device)
 
         # # —— 8. 构建 prm_reward 张量 ——
-        # max_len = max(len(r) for r in final_rewards_padded)
-        # pr_tensors = [r + [0.0] * (max_len - len(r)) for r in final_rewards_padded]
-        # prm_reward = torch.tensor(pr_tensors, device=device)
         # 使得 prm_reward 的每行长度与 resp_padded 的响应长度一致 (response_len)
-        # prefix_len 是原 prompt 的长度
-        prefix_len = prompts.batch["input_ids"].size(1)
         pr_tensors = []
         for r in final_rewards_padded:
-            # 补 prompt 部分
-            row = [0.0] * prefix_len + r
-            # 如果必要，再截断或补齐到 prefix_len + response_len
-            total_len = prefix_len + response_len
-            if len(row) >= total_len:
-                row = row[:total_len]
+            # 截断或补齐到 response_len
+            if len(r) >= response_len:
+                row = r[:response_len]
             else:
-                row = row + [0.0] * (total_len - len(row))
+                row = r + [0.0] * (response_len - len(r))
             pr_tensors.append(row)
         prm_reward = torch.tensor(pr_tensors, device=device)
 
-        # —— 9. repeat 原 prompt tensors & 拼 batch ——
+        # —— 9. repeat 原 prompt tensors & 拼 batch —— repeat 原 prompt tensors & 拼 batch ——
         Bn = resp_padded.size(0)
         repeat = Bn // bs
         idx    = prompts.batch["input_ids"].repeat_interleave(repeat, dim=0)
@@ -1249,31 +1167,16 @@ class vLLMRollout(BaseRollout):
         pos    = torch.cat([pos, last_p+delta], dim=1)
         attn   = get_eos_mask(resp_padded, self.tokenizer.eos_token_id, mask.dtype)
         mask   = torch.cat([mask, attn], dim=1)
-        pad_resp = torch.full(
-            (resp_padded.size(0), prefix_len),
-            fill_value=self.tokenizer.pad_token_id,
-            device=device,
-            dtype=resp_padded.dtype
-        )
-        full_responses = torch.cat([pad_resp, resp_padded], dim=1)
-        
+
         batch = TensorDict({
             "prompts":        idx,
-            "responses":      full_responses, #response ids
+            "responses":      resp_padded,
             "input_ids":      seq,
             "attention_mask": mask,
             "position_ids":   pos,
             "prm_reward":     prm_reward,
         }, batch_size=Bn)
-
-        # with open("prm_reward2_0.txt", "w", encoding="utf-8") as f:
-        #     f.write(str(prm_reward[0].tolist()))
-        # # 将第一个样本的 response 文本保存到文件
-        # first_resp_ids = resp_padded[0].tolist()
-        # first_resp_text = self.tokenizer.decode(first_resp_ids, skip_special_tokens=True)
-        # with open("first_response2_0.txt", "w", encoding="utf-8") as f:
-        #     f.write(first_resp_text)
-        # # 可选：打印文件路径以确认
-        # print("Saved prm_reward to prm_reward_0.txt and first response to first_response_0.txt")
-
+        print(f"resp_padded.shape: {resp_padded.shape}")####check resp_padded shape
+        print(f"prm_reward.shape: {prm_reward.shape}")####check prm_reward shape
         return DataProto(batch=batch)
+
