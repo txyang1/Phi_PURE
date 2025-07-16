@@ -1,0 +1,8 @@
+Step 1: Find the equation of the first line.
+To find the equation of the line with a slope of $-3$, we can use the Point-Slope formula. Since the line passes through point $E(3,3)$, we can substitute the values into the formula:
+$y-3 = -3(x-3)$
+Simplifying the equation, we get:
+$y = -3x + 12$
+So the equation of the first line is $y = -3x + 12$.
+Step 2: Find the equation of the second line.
+To find the equation of the second line, we can use the slope-intercept form $y = mx + b$. We know that the line passes through point $C(6,0)$, so we can substitute the values into the formula:
