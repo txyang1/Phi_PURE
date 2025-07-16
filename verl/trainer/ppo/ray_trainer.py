@@ -202,6 +202,7 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
         data.batch['returns'] = returns
     elif adv_estimator == AdvantageEstimator.RLOO:
         token_level_rewards = data.batch['token_level_rewards']
+        #token_level_rewards = data.batch['prm_reward']
         index = data.non_tensor_batch['uid']
         responses = data.batch['responses']
         response_length = responses.size(-1)
@@ -721,7 +722,7 @@ class RayPPOTrainer(object):
             dataset=self.val_dataset,
             # Validation datasets are sent to inference engines as a whole batch,
             # which will schedule the memory themselves.
-            batch_size= len(self.val_dataset), #self.config.data.val_batch_size, ### tx 自定义一下试试
+            batch_size= self.config.data.val_batch_size, #len(self.val_dataset), #self.config.data.val_batch_size, ### tx 自定义一下试试
             shuffle=False,
             drop_last=False,
             collate_fn=collate_fn)
@@ -1200,6 +1201,7 @@ class RayPPOTrainer(object):
                             rm_coef = self.config.reward_model.get('modeling_reward_coef', 1.0)
                             rm_scores = batch.batch['rm_scores']
                             token_level_scores = token_level_vr * vr_coef + rm_scores * rm_coef
+                            #token_level_scores = rm_scores * rm_coef
                         else:
                             token_level_scores = token_level_vr
                         batch.batch['token_level_scores'] = token_level_scores
