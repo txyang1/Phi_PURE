@@ -1100,7 +1100,7 @@ class vLLMRollout(BaseRollout):
                 f"User: {raw_prompts[b].strip()}\n"
                 f"Reasoning so far:\n{prev_steps[b][best_k]}\n"
                 #f"Final step: Continue the reasoning above—include **all** intermediate steps—and write out the full reasoning process, "
-                f"Final step: ending with the answer in the format \\boxed{{…}} and finish the reasoning with <end_of_reasoning>."
+                #f"Final step: ending with the answer in the format \\boxed{{…}} and finish the reasoning with <end_of_reasoning>."
             )
             #print(f"raw_prompts[{b}]:{raw_prompts[b]}")###check raw_prompts
             #print(f"prev_steps[{b}]:{prev_steps[b][best_k]}")###check prev_steps
@@ -1137,6 +1137,7 @@ class vLLMRollout(BaseRollout):
 
         # encode & pad responses
         full_resp_ids = [self.tokenizer.encode(t, add_special_tokens=False) for t in full_texts]
+        #full_resp_ids = [ids[:response_len] for ids in full_resp_ids]#截断到 response_len
         resp_padded = pad_2d_list_to_length(
             full_resp_ids,
             self.tokenizer.pad_token_id,
