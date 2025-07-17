@@ -76,6 +76,7 @@ class AdvantageEstimator(str, Enum):
     REINFORCE_PLUS_PLUS = 'reinforce_plus_plus'
     REMAX = 'remax'
     RLOO = 'rloo'
+    #RLOO_TOKEN = 'rloo_token'
 
 
 @dataclass
@@ -215,6 +216,36 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
         )
         data.batch['advantages'] = advantages
         data.batch['returns'] = returns
+    # elif adv_estimator == AdvantageEstimator.RLOO_TOKEN:
+    #     # —— 只做 token-level RLOO baseline —— 
+    #     # scores shape = [B, T], B = K * N
+    #     scores = data.batch['token_level_rewards']
+    #     B, T = scores.shape
+    #     N = num_repeat     # rollout 每个 prompt 重复次数
+    #     K = B // N         # prompt 数
+
+    #     # reshape to [K, N, T]
+    #     scores_knt = scores.view(K, N, T)
+
+    #     # 1) 计算 discounted returns R[i,j,t] = sum_{l=t..T-1} γ^(l−t)*scores[i,j,l]
+    #     returns_knt = torch.zeros_like(scores_knt)
+    #     for t in reversed(range(T)):
+    #         if t == T - 1:
+    #             returns_knt[..., t] = scores_knt[..., t]
+    #         else:
+    #             returns_knt[..., t] = scores_knt[..., t] + gamma * returns_knt[..., t + 1]
+
+    #     # 2) 计算 token-level baseline：同一 prompt 下其它 N−1 条的平均 return
+    #     #    sum over the N dimension → [K,1,T]
+    #     sum_returns = returns_knt.sum(dim=1, keepdim=True)
+    #     baseline_knt = (sum_returns - returns_knt) / float(N - 1)  # [K,N,T]
+
+    #     # 3) advantage = return − baseline
+    #     adv_knt = returns_knt - baseline_knt
+
+    #     # flatten back to [B, T]
+    #     data.batch['returns']    = returns_knt.reshape(B, T)
+    #     data.batch['advantages'] = adv_knt.reshape(B, T)
     else:
         raise NotImplementedError
     return data
@@ -891,10 +922,11 @@ class RayPPOTrainer(object):
             raise NotImplementedError
 
         # create critic
-        if self.use_critic:
-            resource_pool = self.resource_pool_manager.get_resource_pool(Role.Critic)
-            critic_cls = RayClassWithInitArgs(cls=self.role_worker_mapping[Role.Critic], config=self.config.critic)
-            self.resource_pool_to_cls[resource_pool]['critic'] = critic_cls
+        ## —— 不创建 Critic worker ——  
+        # if self.use_critic:
+        #     resource_pool = self.resource_pool_manager.get_resource_pool(Role.Critic)
+        #     critic_cls = RayClassWithInitArgs(cls=self.role_worker_mapping[Role.Critic], config=self.config.critic)
+        #     self.resource_pool_to_cls[resource_pool]['critic'] = critic_cls
 
         # create reference policy if needed
         if self.use_reference_policy:
@@ -1105,8 +1137,10 @@ class RayPPOTrainer(object):
                     if self.use_rm:
                         with _timer('compute_rm_score', timing_raw):
                             # return rm_scores
-                            reward_tensor = self.rm_wg.compute_rm_score(batch)
-                            batch = batch.union(reward_tensor)
+                            # reward_tensor = self.rm_wg.compute_rm_score(batch)
+                            # batch = batch.union(reward_tensor)
+                            #直接使用prm_reward作为rm_scores,避免模型打分
+                            batch.batch['rm_scores'] = batch.batch['prm_reward']
 
                     # repeatness & reflection pattern score
                     with _timer('compute_additional_metrics', timing_raw):
@@ -1187,11 +1221,13 @@ class RayPPOTrainer(object):
                             batch = batch.union(ref_log_prob)
 
                     # compute values
-                    if self.use_critic:
-                        with _timer('compute_values', timing_raw):
-                            values = self.critic_wg.compute_values(batch)
-                            batch = batch.union(values)
-
+                    #—— 不做 value 网络前向 ——  
+                    # if self.use_critic:
+                    #     with _timer('compute_values', timing_raw):
+                    #         values = self.critic_wg.compute_values(batch)
+                    #         batch = batch.union(values)
+                    
+                    #更改计算advantage的方式
                     with _timer('compute_advantage', timing_raw):
                         # 1. compute token-level scores from rm_scores and reward_fn_scores
                         token_level_vr = batch.batch['reward_fn_scores']
@@ -1200,8 +1236,8 @@ class RayPPOTrainer(object):
                             vr_coef = self.config.reward_model.get('verifiable_reward_coef', 1.0)
                             rm_coef = self.config.reward_model.get('modeling_reward_coef', 1.0)
                             rm_scores = batch.batch['rm_scores']
-                            token_level_scores = token_level_vr * vr_coef + rm_scores * rm_coef
-                            #token_level_scores = rm_scores * rm_coef
+                            #token_level_scores = token_level_vr * vr_coef + rm_scores * rm_coef
+                            token_level_scores = rm_scores * rm_coef #不使用验证奖励
                         else:
                             token_level_scores = token_level_vr
                         batch.batch['token_level_scores'] = token_level_scores
@@ -1228,12 +1264,32 @@ class RayPPOTrainer(object):
                             return_aggregate_method=self.return_aggregate_method,
                         )
 
+                    # # —— 只用 rollout 时生成的 prm_reward ——
+                    # # 1. compute token-level scores from prm_reward
+                    # with _timer('compute_advantage', timing_raw):
+                    #     # —— 只用 rollout 时生成的 prm_reward ——  
+                    #     scores = batch.batch['prm_reward']       # [B, T]
+                    #     batch.batch['token_level_scores']  = scores
+                    #     batch.batch['token_level_rewards'] = scores
+
+                    #     # 跳过 KL penalty，直接做 “token-level RLOO baseline” advantage
+                    #     batch = compute_advantage(
+                    #         data=batch,
+                    #         adv_estimator=AdvantageEstimator.RLOO_TOKEN,
+                    #         gamma=self.config.algorithm.gamma,
+                    #         lam=self.config.algorithm.lam,
+                    #         num_repeat=self.config.actor_rollout_ref.rollout.n,
+                    #         adv_norm=False,
+                    #         return_aggregate_method='sum',
+                    #     )
+
                     # update critic
-                    if self.use_critic:
-                        with _timer('update_critic', timing_raw):
-                            critic_output = self.critic_wg.update_critic(batch)
-                        critic_output_metrics = reduce_metrics(critic_output.meta_info['metrics'])
-                        metrics.update(critic_output_metrics)
+                    # —— 不做 Critic 更新 ——  
+                    # if self.use_critic:
+                    #     with _timer('update_critic', timing_raw):
+                    #         critic_output = self.critic_wg.update_critic(batch)
+                    #     critic_output_metrics = reduce_metrics(critic_output.meta_info['metrics'])
+                    #     metrics.update(critic_output_metrics)
 
                     # implement critic warmup
                     if self.config.trainer.critic_warmup <= self.global_steps:
