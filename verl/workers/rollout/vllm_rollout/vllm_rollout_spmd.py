@@ -938,7 +938,7 @@ class vLLMRollout(BaseRollout):
         }, batch_size=Bn)
 
         return DataProto(batch=batch)'''
-    
+    #rollout 成功版，使用 combined_weights
     @torch.no_grad()
     def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
         """
@@ -1055,12 +1055,13 @@ class vLLMRollout(BaseRollout):
                 adv_k  = adv_slice[keep]
 
                 # 计算增益权重
-                adv_weights = softmax(adv_k/temperature)
+                #adv_weights = softmax(adv_k/temperature)
+                combined_weights = softmax(adv_k/temperature)
 
                 # 合并权重
                 #combined_weights = 0.5*cluster_weights + 0.5*adv_weights
-                combined_weights = adv_weights
-                combined_weights /= combined_weights.sum()
+                # combined_weights = adv_weights
+                # combined_weights /= combined_weights.sum()
 
                 # 一次性抽 beam_size 条
                 selected_idxs = np.random.choice(
@@ -1075,10 +1076,15 @@ class vLLMRollout(BaseRollout):
                     resp_text = resp_slice[sel]
                     # 记录本步权重并 replicate
                     idx_in_keep = keep.index(sel)
-                    w = float(combined_weights[idx_in_keep])
+                    # w = float(combined_weights[idx_in_keep])
+                    # token_ids = self.tokenizer.encode(resp_text, add_special_tokens=False)
+                    # rep_ws = [w] * len(token_ids)
+                    # new_weights[b][k] = weights_history[b][origin_beam] + rep_ws
+                    # 新：直接取 raw advantage adv_slice[sel]####
+                    raw_adv = float(adv_slice[sel])               # adv_slice = all_lp - prev_v
                     token_ids = self.tokenizer.encode(resp_text, add_special_tokens=False)
-                    rep_ws = [w] * len(token_ids)
-                    new_weights[b][k] = weights_history[b][origin_beam] + rep_ws
+                    rep_adv = [raw_adv] * len(token_ids)
+                    new_weights[b][k] = weights_history[b][origin_beam] + rep_adv
 
                     new_steps[b][k]  = prev_steps[b][origin_beam] + resp_slice[sel] + "\n"
                     new_values[b][k] = lp_slice[sel]
@@ -1090,9 +1096,21 @@ class vLLMRollout(BaseRollout):
         final_prompts = []
         history_list  = []
         final_rewards = []
+        final_probs   = []
         for b in range(bs):
-            # 选择最大的 prev_value 对应的 beam
-            best_k = int(np.argmax(prev_values[b]))
+            # # 选择最大的 prev_value 对应的 beam
+            # best_k = int(np.argmax(prev_values[b]))
+            # —— 基于 prev_values 重新计算增益权重（adv）并做 softmax 采样 —— 
+            vals = np.array(prev_values[b])                     # shape: [beam_size]
+            adv  = vals - vals.mean()                           # centered advantage
+            beam_p = np.exp(adv / temperature)
+            beam_p /= beam_p.sum()                                # 归一化概率
+            best_k = int(np.random.choice(len(beam_p), p=beam_p))  # 按概率采样一个 beam
+            p = float(beam_p[best_k])   # 把选中那条 beam 的概率取出来
+            #新adv####
+            adv_all = vals - vals.mean()####
+            raw_adv_final = float(adv_all[best_k])####
+
             history = prev_steps[b][best_k]
             base_ws   = weights_history[b][best_k]
             txt = (
@@ -1111,6 +1129,8 @@ class vLLMRollout(BaseRollout):
                 final_prompts.append(ids)
                 history_list.append(history)
                 final_rewards.append(list(base_ws))
+                #final_probs.append(p)  # 保存选中 beam 的概率
+                final_probs.append(raw_adv_final)####adv版
 
         final_sp = SamplingParams(
             max_tokens = response_len,
@@ -1133,7 +1153,9 @@ class vLLMRollout(BaseRollout):
             gen_text = out.outputs[0].text.strip()
             full_texts.append(history + gen_text)
             token_ids = self.tokenizer.encode(gen_text, add_special_tokens=False)
-            final_rewards_padded.append(final_rewards[i] + [1.0] * len(token_ids))
+            #final_rewards_padded.append(final_rewards[i] + [1.0] * len(token_ids))
+            prob = final_probs[i]
+            final_rewards_padded.append(final_rewards[i] + [prob] * len(token_ids))
 
         # encode & pad responses
         full_resp_ids = [self.tokenizer.encode(t, add_special_tokens=False) for t in full_texts]
@@ -1155,6 +1177,19 @@ class vLLMRollout(BaseRollout):
                 row = r + [0.0] * (response_len - len(r))
             pr_tensors.append(row)
         prm_reward = torch.tensor(pr_tensors, device=device)
+        ####neu reward 这样计算导致reward过小
+        # # 按公式算权重：w_i = exp(-r_i/T) / sum_j exp(-r_j/T)
+        # r = prm_reward
+        # T = temperature 
+        # exp_neg = torch.exp(-r / T)           # [Bn, L]
+        # den = exp_neg.sum(dim=1, keepdim=True)  # [Bn, 1]
+        # w = exp_neg / den                       # [Bn, L]
+
+        # # 4) 最终 r*_i = w_i * r_i
+        # r_star = w * r                          # [Bn, L]
+
+        # # 5) 用 r_star 作为 prm_reward
+        # prm_reward = r_star
 
         # —— 9. repeat 原 prompt tensors & 拼 batch —— repeat 原 prompt tensors & 拼 batch ——
         Bn = resp_padded.size(0)
@@ -1179,5 +1214,14 @@ class vLLMRollout(BaseRollout):
         }, batch_size=Bn)
         print(f"resp_padded.shape: {resp_padded.shape}")####check resp_padded shape
         print(f"prm_reward.shape: {prm_reward.shape}")####check prm_reward shape
+        with open("prm_reward2_0.txt", "w", encoding="utf-8") as f:
+            f.write(str(prm_reward[0].tolist()))
+        # 将第一个样本的 response 文本保存到文件
+        first_resp_ids = resp_padded[0].tolist()
+        first_resp_text = self.tokenizer.decode(first_resp_ids, skip_special_tokens=True)
+        with open("first_response2_0.txt", "w", encoding="utf-8") as f:
+            f.write(first_resp_text)
+        # 可选：打印文件路径以确认
+        print("Saved prm_reward to prm_reward_0.txt and first response to first_response_0.txt")
         return DataProto(batch=batch)
 
