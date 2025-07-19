@@ -17,7 +17,8 @@ actor_rollout_ref:
   #phi: ${phi} # inherit phi config
   hybrid_engine: True
   model:
-    path: Qwen/Qwen2.5-7B
+    #path: Qwen/Qwen2.5-7B
+    path: Qwen/Qwen2.5-1.5B-Instruct
     external_lib: null
     override_config: { }
     enable_gradient_checkpointing: True
@@ -159,7 +160,7 @@ reward_model:
   ulysses_sequence_parallel_size: 1
   use_dynamic_bsz: True
   forward_max_token_len_per_gpu: 24000
-  reward_manager: prime
+  reward_manager: blank
   verifiable_reward_coef: 1.0
   modeling_reward_coef: 0.5
   repeatness_punishment: False
@@ -188,7 +189,7 @@ trainer:
   total_epochs: 20
   total_training_steps: null
   project_name: pure_verl
-  experiment_name: Qwen2p5-7B_prompts-${data.train_batch_size}_n-${actor_rollout_ref.rollout.n}
+  experiment_name: Qwen2p5-1.5B-instruct_prompts-${data.train_batch_size}_n-${actor_rollout_ref.rollout.n}
   logger: ['console', 'wandb']
   val_generations_to_log_to_wandb: 0
   nnodes: 1
