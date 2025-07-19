@@ -159,7 +159,7 @@ reward_model:
   ulysses_sequence_parallel_size: 1
   use_dynamic_bsz: True
   forward_max_token_len_per_gpu: 24000
-  reward_manager: prime
+  reward_manager: blank #prime 
   verifiable_reward_coef: 1.0
   modeling_reward_coef: 0.5
   repeatness_punishment: False
@@ -203,6 +203,9 @@ trainer:
   remove_previous_ckpt_in_save: False
   del_local_ckpt_after_load: False
   default_local_dir: logs/${trainer.project_name}/${trainer.experiment_name}
+
+
+
 # data:
 #   tokenizer: null
 #   chat_template: null  # override in code
@@ -287,7 +290,7 @@ trainer:
 #     enable_chunked_prefill: True # may get higher throughput when set to True. When activated, Please increase max_num_batched_tokens or decrease max_model_len.
 #     # for hf rollout
 #     do_sample: True
-#     n: 8
+#     n: 4
 #     seed: 42
 
 # critic:
@@ -351,7 +354,7 @@ trainer:
 #   ulysses_sequence_parallel_size: 1
 #   use_dynamic_bsz: True
 #   forward_max_token_len_per_gpu: 24000
-#   reward_manager: prime
+#   reward_manager: blank #prime
 #   verifiable_reward_coef: 1.0
 #   modeling_reward_coef: 0.5
 #   repeatness_punishment: False
@@ -375,6 +378,7 @@ trainer:
 #     kl_coef: 0.001
 
 # trainer:
+#   val_before_train: False
 #   debug_mode: False
 #   total_epochs: 20
 #   total_training_steps: null
@@ -388,7 +392,7 @@ trainer:
 #   # auto: find the last ckpt to resume. If can't find, start from scratch
 #   resume_mode: auto # or auto or resume_path if 
 #   resume_from_path: null
-#   test_freq: 10
+#   test_freq: 0 #10
 #   critic_warmup: 0
 #   default_hdfs_dir: null
 #   remove_previous_ckpt_in_save: False
