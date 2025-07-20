@@ -1,0 +1,22 @@
+[2025-07-20 08:51:40,296] [INFO] [real_accelerator.py:239:get_accelerator] Setting ds_accelerator to cuda (auto detect)
+
+============================= JOB FEEDBACK =============================
+
+Job ID: 3360888
+Cluster: hk
+User/Group: hgf_sap9939/hk-project-p0022560
+Account: hk-project-p0022560
+State: CANCELLED (exit code 0)
+Partition: accelerated
+Nodes: 1
+Cores per node: 32
+Nodelist: hkn0532
+CPU Utilized: 00:00:03
+CPU Efficiency: 0.01% of 11:36:32 core-walltime
+Job Wall-clock time: 00:21:46
+Starttime: Sun Jul 20 08:49:47 2025
+Endtime: Sun Jul 20 09:11:33 2025
+Memory Utilized: 47.22 GB
+Memory Efficiency: 0.00% of 0.00 MB
+Energy Consumed: 982790 Joule / 272.997222222222 Watthours
+Average node power draw: 752.519142419602 Watt

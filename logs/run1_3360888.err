@@ -1,0 +1,41 @@
+2025-07-20 08:51:53,685	INFO worker.py:1888 -- Started a local Ray instance.
+[36m(WorkerDict pid=4166797)[0m You are attempting to use Flash Attention 2.0 with a model not initialized on GPU. Make sure to move the model to GPU after initializing it on CPU with `model.to('cuda')`.
+[36m(WorkerDict pid=4166797)[0m [rank0]:[W720 08:53:22.302641150 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 0]  using GPU 0 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[36m(WorkerDict pid=4166797)[0m Fetching 3 files:   0%|          | 0/3 [00:00<?, ?it/s]
+[36m(WorkerDict pid=4167307)[0m You are attempting to use Flash Attention 2.0 with a model not initialized on GPU. Make sure to move the model to GPU after initializing it on CPU with `model.to('cuda')`.[32m [repeated 3x across cluster][0m
+[36m(WorkerDict pid=4167307)[0m [rank2]:[W720 08:53:22.296786681 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 2]  using GPU 0 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.[32m [repeated 3x across cluster][0m
+[36m(WorkerDict pid=4166797)[0m Fetching 3 files:  33%|███▎      | 1/3 [01:50<03:40, 110.39s/it]
+[36m(WorkerDict pid=4167307)[0m Fetching 3 files:   0%|          | 0/3 [00:00<?, ?it/s][32m [repeated 3x across cluster][0m
+[36m(WorkerDict pid=4166797)[0m Fetching 3 files: 100%|██████████| 3/3 [02:36<00:00, 45.34s/it]Fetching 3 files: 100%|██████████| 3/3 [02:36<00:00, 52.22s/it]
+[36m(WorkerDict pid=4166797)[0m Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s]
+[36m(WorkerDict pid=4167308)[0m Fetching 3 files:  67%|██████▋   | 2/3 [01:53<00:47, 47.56s/it] [32m [repeated 7x across cluster][0m
+[36m(WorkerDict pid=4166797)[0m Loading checkpoint shards:  33%|███▎      | 1/3 [00:00<00:00,  8.98it/s]
+[36m(WorkerDict pid=4166797)[0m Loading checkpoint shards: 100%|██████████| 3/3 [00:00<00:00,  5.92it/s]Loading checkpoint shards: 100%|██████████| 3/3 [00:00<00:00,  6.15it/s]
+[36m(WorkerDict pid=4166797)[0m Flash Attention 2.0 only supports torch.float16 and torch.bfloat16 dtypes, but the current dype in Qwen2ForCausalLM is torch.float32. You should run training or inference using Automatic Mixed-Precision via the `with torch.autocast(device_type='torch_device'):` decorator, or load the model with the `torch_dtype` argument. Example: `model = AutoModel.from_pretrained("openai/whisper-tiny", attn_implementation="flash_attention_2", torch_dtype=torch.float16)`
+[36m(WorkerDict pid=4167307)[0m Fetching 3 files: 100%|██████████| 3/3 [02:36<00:00, 45.35s/it]Fetching 3 files: 100%|██████████| 3/3 [02:36<00:00, 52.23s/it][32m [repeated 3x across cluster][0m
+[36m(WorkerDict pid=4167307)[0m Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s][32m [repeated 3x across cluster][0m
+[36m(WorkerDict pid=4167307)[0m Loading checkpoint shards:  67%|██████▋   | 2/3 [00:00<00:00,  5.93it/s][32m [repeated 7x across cluster][0m
+[36m(WorkerDict pid=4167307)[0m Loading checkpoint shards: 100%|██████████| 3/3 [00:00<00:00,  5.87it/s]Loading checkpoint shards: 100%|██████████| 3/3 [00:00<00:00,  6.06it/s][32m [repeated 3x across cluster][0m
+[36m(WorkerDict pid=4166797)[0m Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+[36m(WorkerDict pid=4167307)[0m Flash Attention 2.0 only supports torch.float16 and torch.bfloat16 dtypes, but the current dype in Qwen2ForCausalLM is torch.float32. You should run training or inference using Automatic Mixed-Precision via the `with torch.autocast(device_type='torch_device'):` decorator, or load the model with the `torch_dtype` argument. Example: `model = AutoModel.from_pretrained("openai/whisper-tiny", attn_implementation="flash_attention_2", torch_dtype=torch.float16)`[32m [repeated 3x across cluster][0m
+[36m(WorkerDict pid=4166797)[0m Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:01<00:00,  1.22s/it]
+[36m(WorkerDict pid=4166797)[0m Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:01<00:00,  1.22s/it]
+[36m(WorkerDict pid=4166797)[0m 
+[36m(WorkerDict pid=4166797)[0m /home/hk-project-p0022560/hgf_sap9939/miniconda3/envs/pure/lib/python3.11/site-packages/torch/distributed/fsdp/fully_sharded_data_parallel.py:690: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .
+[36m(WorkerDict pid=4166797)[0m   warnings.warn(
+[36m(main_task pid=4165986)[0m wandb: Currently logged in as: tingxinyang2 (tingxinyang2-technical-university-of-munich) to https://api.wandb.ai. Use `wandb login --relogin` to force relogin
+[36m(WorkerDict pid=4167307)[0m /home/hk-project-p0022560/hgf_sap9939/miniconda3/envs/pure/lib/python3.11/site-packages/torch/distributed/fsdp/fully_sharded_data_parallel.py:690: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .[32m [repeated 3x across cluster][0m
+[36m(WorkerDict pid=4167307)[0m   warnings.warn([32m [repeated 3x across cluster][0m
+[36m(main_task pid=4165986)[0m wandb: Tracking run with wandb version 0.19.11
+[36m(main_task pid=4165986)[0m wandb: Run data is saved locally in /hkfs/home/project/hk-project-p0022560/hgf_sap9939/PURE/wandb/run-20250720_085830-23cn2h8m
+[36m(main_task pid=4165986)[0m wandb: Run `wandb offline` to turn off syncing.
+[36m(main_task pid=4165986)[0m wandb: Syncing run Qwen2p5-1.5B-instruct_prompts-128_n-4
+[36m(main_task pid=4165986)[0m wandb: ⭐️ View project at https://wandb.ai/tingxinyang2-technical-university-of-munich/pure_verl
+[36m(main_task pid=4165986)[0m wandb: 🚀 View run at https://wandb.ai/tingxinyang2-technical-university-of-munich/pure_verl/runs/23cn2h8m
+slurmstepd: error: *** JOB 3360888 ON hkn0532 CANCELLED AT 2025-07-20T09:11:33 ***
+*** SIGTERM received at time=1752995493 on cpu 9 ***
+PC: @     0x14917928675a  (unknown)  __futex_abstimed_wait_common
+    @     0x14917923e6f0  (unknown)  (unknown)
+[2025-07-20 09:11:33,103 E 4156599 4156599] logging.cc:496: *** SIGTERM received at time=1752995493 on cpu 9 ***
+[2025-07-20 09:11:33,103 E 4156599 4156599] logging.cc:496: PC: @     0x14917928675a  (unknown)  __futex_abstimed_wait_common
+[2025-07-20 09:11:33,103 E 4156599 4156599] logging.cc:496:     @     0x14917923e6f0  (unknown)  (unknown)
