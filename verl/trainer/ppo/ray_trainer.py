@@ -557,7 +557,7 @@ def _timer(name: str, timing_raw: Dict[str, float]):
     timing_raw[name] = timer.last
 
 
-#reward 改动版
+'''#reward 改动版
 class RayPPOTrainer(object):
     """
     Note that this trainer runs on the driver process on a single CPU/GPU node.
@@ -1331,9 +1331,9 @@ class RayPPOTrainer(object):
                             (self.global_steps - 1) % self.config.trainer.save_freq != 0:
                         with _timer('save_checkpoint', timing_raw):
                             self._save_checkpoint()
-                    return
+                    return'''
 
-'''#原版
+#原版
 class RayPPOTrainer(object):
     """
     Note that this trainer runs on the driver process on a single CPU/GPU node.
@@ -2087,4 +2087,4 @@ class RayPPOTrainer(object):
                             (self.global_steps - 1) % self.config.trainer.save_freq != 0:
                         with _timer('save_checkpoint', timing_raw):
                             self._save_checkpoint()
-                    return'''
+                    return
