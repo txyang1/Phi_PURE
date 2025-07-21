@@ -1,0 +1,16 @@
+To find the area of triangle \(ABC\), let's follow these steps:
+1. Since \(AB = BC\) and the triangle is acute, we know that the altitude \(AD\) from vertex \(A\) to side \(BC\) bisects \(BC\) at point \(D\). This means that \(BD = DC\).
+2. Given \(AD = 8\), since \(D\) is the midpoint of \(BC\), segments \(BD\) and \(DC\) each have length \(8\).
+3. Now it is given that \(AH = 5\), and \(H\) is the orthocenter of the triangle. The altitude \(CH\) is thus perpendicular to side \(AB\), and as \(H\) lies above \(D\), \(CH\) extends through \(D\).
+4. To find the area of the triangle, we can use the formula:
+\[
+\text{Area} = \frac{1}{2} \times \text{base} \times \text{height}
+\]
+Here, the base \(BC\) is \(BD + DC = 8 + 8 = 16\), and the height is \(AD = 8\):
+\[
+\text{Area} = \frac{1}{2} \times 16 \times 8 = \frac{1}{2} \times 128 = 64
+\]
+
+Therefore, the area of triangle \(ABC\) is \(\boxed{64}\).
+
+Thus,
