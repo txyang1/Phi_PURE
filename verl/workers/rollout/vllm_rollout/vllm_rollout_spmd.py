@@ -1166,7 +1166,7 @@ class vLLMRollout(BaseRollout):
             max_length=response_len
         ).to(device)
 
-        # # —— 8. 构建 prm_reward 张量 ——
+        # —— 8. 构建 prm_reward 张量 ——
         # 使得 prm_reward 的每行长度与 resp_padded 的响应长度一致 (response_len)
         pr_tensors = []
         for r in final_rewards_padded:
@@ -1177,8 +1177,10 @@ class vLLMRollout(BaseRollout):
                 row = r + [0.0] * (response_len - len(r))
             pr_tensors.append(row)
         prm_reward = torch.tensor(pr_tensors, device=device)
-        ####neu reward 这样计算导致reward过小
-        # 按公式算权重：w_i = exp(-r_i/T) / sum_j exp(-r_j/T)
+
+        
+        # ####neu reward 这样计算导致reward过小
+        # # 按公式算权重：w_i = exp(-r_i/T) / sum_j exp(-r_j/T)
         r = prm_reward
         T = temperature 
         exp_neg = torch.exp(-r / T)           # [Bn, L]
@@ -1215,15 +1217,15 @@ class vLLMRollout(BaseRollout):
         print(f"[DEBUG] resp_padded.shape: {resp_padded.shape}")####check resp_padded shape
         print(f"[DEBUG] prm_reward.shape: {prm_reward.shape}")####check prm_reward shape
         print(f"[DEBUG] prm_reward[0]: {prm_reward[0]}")####check prm_reward[0]
-        with open("prm_reward3_0.txt", "w", encoding="utf-8") as f:
-            f.write(str(prm_reward[0].tolist()))
+        # with open("prm_reward3_0.txt", "w", encoding="utf-8") as f:
+        #     f.write(str(prm_reward[0].tolist()))
         # 将第一个样本的 response 文本保存到文件
         first_resp_ids = resp_padded[0].tolist()
         #print(f"[DEBUG] first_resp_ids: {first_resp_ids}")####check first_resp_ids
         first_resp_text = self.tokenizer.decode(first_resp_ids, skip_special_tokens=True)
         print(f"[DEBUG] first_resp_text: {first_resp_text}")####check first_resp_text
-        with open("first_response3_0.txt", "w", encoding="utf-8") as f:
-            f.write(first_resp_text)
+        # with open("first_response3_0.txt", "w", encoding="utf-8") as f:
+        #     f.write(first_resp_text)
         # 可选：打印文件路径以确认
         print("[DEBUG] Saved prm_reward to prm_reward_0.txt and first response to first_response_0.txt")
         return DataProto(batch=batch)
