@@ -49,7 +49,7 @@ class BasePPOActor(ABC):
 
         """
         pass
-
+    
     @abstractmethod
     def update_policy(self, data: DataProto) -> Dict:
         """Update the policy with an iterator of DataProto

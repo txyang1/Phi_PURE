@@ -76,6 +76,7 @@ class AdvantageEstimator(str, Enum):
     REINFORCE_PLUS_PLUS = 'reinforce_plus_plus'
     REMAX = 'remax'
     RLOO = 'rloo'
+    INTUITOR = 'intuitor'
     #RLOO_TOKEN = 'rloo_token'
 
 
@@ -109,6 +110,11 @@ import torch
 
 from verl.utils.torch_functional import masked_mean
 
+#计算self-certainty
+def self_certainty_from_logits(logits: torch.Tensor):
+    """Calculate self-certainty from logits."""
+    self_certainty = torch.logsumexp(logits, dim=-1) - logits.mean(dim=-1)
+    return self_certainty
 
 def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, kl_penalty='kl'):
     responses = data.batch['responses']
@@ -161,6 +167,8 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
         data.batch['returns'] = returns
     elif adv_estimator == AdvantageEstimator.GRPO:
         token_level_rewards = data.batch['token_level_rewards']
+        print(f"[DEBUG] token_level_rewards_in_function shape = {token_level_rewards.shape}"
+              f" values = {token_level_rewards[0].detach().cpu().tolist()}")
         index = data.non_tensor_batch['uid']
         responses = data.batch['responses']
         response_length = responses.size(-1)
@@ -172,6 +180,7 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
             return_aggregate_method=return_aggregate_method,
         )
         data.batch['advantages'] = advantages
+        print(f"[DEBUG] advantages[0] shape = {advantages[0].shape}, values = {advantages[0].detach().cpu().tolist()}")
         data.batch['returns'] = returns
     elif adv_estimator == AdvantageEstimator.REINFORCE_PLUS_PLUS:
         token_level_rewards = data.batch['token_level_rewards']
@@ -218,36 +227,38 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
         data.batch['advantages'] = advantages
         print(f"[DEBUG] advantages[0] shape = {advantages[0].shape}, values = {advantages[0].detach().cpu().tolist()}")
         data.batch['returns'] = returns
-    # elif adv_estimator == AdvantageEstimator.RLOO_TOKEN:
-    #     # —— 只做 token-level RLOO baseline —— 
-    #     # scores shape = [B, T], B = K * N
-    #     scores = data.batch['token_level_rewards']
-    #     B, T = scores.shape
-    #     N = num_repeat     # rollout 每个 prompt 重复次数
-    #     K = B // N         # prompt 数
+    elif adv_estimator == AdvantageEstimator.INTUITOR:
+        self_certaintys = data.batch['token_level_rewards']
+        responses = data.batch['responses']
+        response_length = responses.size(-1)
+        attention_mask = data.batch['attention_mask']
+        response_mask = attention_mask[:, -response_length:]
+        grpo_calculation_mask = response_mask
+        
+        grpo_calculation_mask = grpo_calculation_mask.to(self_certaintys.dtype)
 
-    #     # reshape to [K, N, T]
-    #     scores_knt = scores.view(K, N, T)
+        sentence_wise_mean = masked_mean(
+            self_certaintys.detach(), mask=grpo_calculation_mask, axis=-1
+        )
 
-    #     # 1) 计算 discounted returns R[i,j,t] = sum_{l=t..T-1} γ^(l−t)*scores[i,j,l]
-    #     returns_knt = torch.zeros_like(scores_knt)
-    #     for t in reversed(range(T)):
-    #         if t == T - 1:
-    #             returns_knt[..., t] = scores_knt[..., t]
-    #         else:
-    #             returns_knt[..., t] = scores_knt[..., t] + gamma * returns_knt[..., t + 1]
+        lengths = grpo_calculation_mask.sum(dim=-1).long()
+        eos_mask_id =  lengths - 1
+        token_level_rewards = torch.zeros_like(self_certaintys)
+        token_level_rewards.scatter_(
+            -1, eos_mask_id.unsqueeze(-1), sentence_wise_mean.unsqueeze(-1)
+        )
 
-    #     # 2) 计算 token-level baseline：同一 prompt 下其它 N−1 条的平均 return
-    #     #    sum over the N dimension → [K,1,T]
-    #     sum_returns = returns_knt.sum(dim=1, keepdim=True)
-    #     baseline_knt = (sum_returns - returns_knt) / float(N - 1)  # [K,N,T]
-
-    #     # 3) advantage = return − baseline
-    #     adv_knt = returns_knt - baseline_knt
-
-    #     # flatten back to [B, T]
-    #     data.batch['returns']    = returns_knt.reshape(B, T)
-    #     data.batch['advantages'] = adv_knt.reshape(B, T)
+        advantages, returns = core_algos.compute_grpo_outcome_advantage(
+            token_level_rewards=token_level_rewards,
+            response_mask=grpo_calculation_mask,
+            index=data.non_tensor_batch["uid"],
+            #norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
+            adv_norm=adv_norm,
+            return_aggregate_method=return_aggregate_method,
+        )
+        data.batch["advantages"] = advantages
+        print(f"[DEBUG] advantages[0] shape = {advantages[0].shape}, values = {advantages[0].detach().cpu().tolist()}")
+        data.batch["returns"] = returns
     else:
         raise NotImplementedError
     return data
@@ -1136,7 +1147,7 @@ class RayPPOTrainer(object):
                     batch = batch.union(gen_batch_output)
 
                     prm = gen_batch_output.batch['prm_reward']  # tx_add prm_reward
-                    batch.batch['token_level_scores'] = prm #tx_add 
+                    #batch.batch['token_level_scores'] = prm #tx_add 如果使用phi+prm_reward#################################
 
                     # TODO: not good to forward rm before curriculum learning
                     # compute reward model's score
@@ -1214,11 +1225,15 @@ class RayPPOTrainer(object):
 
                     # compute global_valid tokens
                     batch.meta_info['global_token_num'] = torch.sum(batch.batch['attention_mask'], dim=-1).tolist()
-
-                    # recompute old_log_probs
+ 
+                    # recompute old_log_probs and self_certainty tx add#########################################################
                     with _timer('compute_old_log_prob', timing_raw):
-                        old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
+                        #old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
+                        old_log_prob,logits = self.actor_rollout_wg.compute_log_prob(batch)#tx_add
+                        self_certainty = self_certainty_from_logits(logits)#得到self_certainty
                         batch = batch.union(old_log_prob)
+                        batch.batch['token_level_scores'] = self_certainty #tx_add 如果使用GRPO的 intuitor reward_free
+                        
 
                     if self.use_reference_policy:
                         # compute reference log_prob
