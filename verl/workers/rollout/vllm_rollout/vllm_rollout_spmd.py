@@ -1076,6 +1076,17 @@ class vLLMRollout(BaseRollout):
                     # 跳出内层 batch 循环和外层 depth 循环
                     stop_foresight = True
                     break
+                
+                # —— 新增：检测是否已有完整轨迹 ——  
+                traj_complete = False
+                # 这里的 candidates_list 就是 cand；如果你用其它变量名，请相应替换
+                for idx, text in enumerate(cand):
+                    if any(tag in text for tag in ["\\boxed{", "<boxed>", "<end_of_reasoning>"]):
+                        traj_complete = True
+                        break
+                if traj_complete:
+                    stop_foresight = True
+                    break  # 同样跳出 batch b 循环
                 ##################################################################
                 # 计算增益权重，无深度剪枝
                 #combined_weights = softmax(adv_k/temperature)#########################################
