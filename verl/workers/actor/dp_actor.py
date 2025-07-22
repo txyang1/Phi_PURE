@@ -238,7 +238,7 @@ class DataParallelPPOActor(BasePPOActor):
         self.actor_optimizer.step()
         return grad_norm
 
-    def compute_log_prob_old(self, data: DataProto) -> torch.Tensor:
+    def compute_log_prob(self, data: DataProto) -> torch.Tensor:
         """Compute the log probability of the responses given input_ids, attention_mask and position_ids
 
         Args:
@@ -288,8 +288,8 @@ class DataParallelPPOActor(BasePPOActor):
 
         return log_probs
 
-
-    def compute_log_prob(self, data: DataProto) -> torch.Tensor:
+    #intuitor 改进版
+    def compute_log_prob_new(self, data: DataProto) -> torch.Tensor:
         """Compute the log probability of the responses given input_ids, attention_mask and position_ids
 
         Args:

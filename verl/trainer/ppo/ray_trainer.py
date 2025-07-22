@@ -1147,7 +1147,7 @@ class RayPPOTrainer(object):
                     batch = batch.union(gen_batch_output)
 
                     prm = gen_batch_output.batch['prm_reward']  # tx_add prm_reward
-                    #batch.batch['token_level_scores'] = prm #tx_add 如果使用phi+prm_reward#################################
+                    batch.batch['token_level_scores'] = prm #tx_add 如果使用phi+prm_reward#################################
 
                     # TODO: not good to forward rm before curriculum learning
                     # compute reward model's score
@@ -1228,11 +1228,11 @@ class RayPPOTrainer(object):
  
                     # recompute old_log_probs and self_certainty tx add#########################################################
                     with _timer('compute_old_log_prob', timing_raw):
-                        #old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
-                        old_log_prob,logits = self.actor_rollout_wg.compute_log_prob(batch)#tx_add
-                        self_certainty = self_certainty_from_logits(logits)#得到self_certainty
+                        old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
+                        # old_log_prob,logits = self.actor_rollout_wg.compute_log_prob(batch)#tx_add##############
+                        # self_certainty = self_certainty_from_logits(logits)#得到self_certainty################
                         batch = batch.union(old_log_prob)
-                        batch.batch['token_level_scores'] = self_certainty #tx_add 如果使用GRPO的 intuitor reward_free
+                        #batch.batch['token_level_scores'] = self_certainty #tx_add 如果使用GRPO的 intuitor reward_free###########
                         
 
                     if self.use_reference_policy:

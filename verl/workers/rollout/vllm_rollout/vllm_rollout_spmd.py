@@ -1054,14 +1054,31 @@ class vLLMRollout(BaseRollout):
                 cand   = [resp_slice[i] for i in keep]
                 adv_k  = adv_slice[keep]
 
+                # # 聚类###################################有深度剪枝
+                X      = TfidfVectorizer().fit_transform(cand)
+                labels = KMeans(n_clusters=cluster_num).fit_predict(X)
+
+                # 计算簇比例
+                counts = np.bincount(labels, minlength=cluster_num)
+                cluster_ratios = counts / counts.sum()
+                cluster_weights = softmax(cluster_ratios[labels])
+
                 # 计算增益权重
-                #adv_weights = softmax(adv_k/temperature)
-                combined_weights = softmax(adv_k/temperature)
+                adv_weights = softmax(adv_k/temperature)
 
                 # 合并权重
-                #combined_weights = 0.5*cluster_weights + 0.5*adv_weights
-                # combined_weights = adv_weights
-                # combined_weights /= combined_weights.sum()
+                combined_weights = 0.5*cluster_weights + 0.5*adv_weights
+
+                # —— 深度剪枝判定 ——  
+                # 计算最大的簇比例，如果超过阈值就停止前瞻
+                largest_ratio = counts.max() / len(resp_slice)
+                if largest_ratio >= threshold:
+                    # 跳出内层 batch 循环和外层 depth 循环
+                    stop_foresight = True
+                    break
+                ##################################################################
+                # 计算增益权重，无深度剪枝
+                #combined_weights = softmax(adv_k/temperature)#########################################
 
                 # 一次性抽 beam_size 条
                 selected_idxs = np.random.choice(
@@ -1088,6 +1105,10 @@ class vLLMRollout(BaseRollout):
 
                     new_steps[b][k]  = prev_steps[b][origin_beam] + resp_slice[sel] + "\n"
                     new_values[b][k] = lp_slice[sel]
+            
+            if stop_foresight:
+                # 提前停止多步前瞻
+                break
 
             prev_steps, prev_values, weights_history = new_steps, new_values, new_weights
         #print(f"prev_steps: {prev_steps}")###check prev_steps
