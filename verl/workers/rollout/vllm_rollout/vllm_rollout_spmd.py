@@ -1178,18 +1178,18 @@ class vLLMRollout(BaseRollout):
             pr_tensors.append(row)
         prm_reward = torch.tensor(pr_tensors, device=device)
         ####neu reward 这样计算导致reward过小
-        # # 按公式算权重：w_i = exp(-r_i/T) / sum_j exp(-r_j/T)
-        # r = prm_reward
-        # T = temperature 
-        # exp_neg = torch.exp(-r / T)           # [Bn, L]
-        # den = exp_neg.sum(dim=1, keepdim=True)  # [Bn, 1]
-        # w = exp_neg / den                       # [Bn, L]
+        # 按公式算权重：w_i = exp(-r_i/T) / sum_j exp(-r_j/T)
+        r = prm_reward
+        T = temperature 
+        exp_neg = torch.exp(-r / T)           # [Bn, L]
+        den = exp_neg.sum(dim=1, keepdim=True)  # [Bn, 1]
+        w = exp_neg / den                       # [Bn, L]
 
-        # # 4) 最终 r*_i = w_i * r_i
-        # r_star = w * r                          # [Bn, L]
+        # 4) 最终 r*_i = w_i * r_i
+        r_star = w * r                          # [Bn, L]
 
-        # # 5) 用 r_star 作为 prm_reward
-        # prm_reward = r_star
+        # 5) 用 r_star 作为 prm_reward
+        prm_reward = r_star
 
         # —— 9. repeat 原 prompt tensors & 拼 batch —— repeat 原 prompt tensors & 拼 batch ——
         Bn = resp_padded.size(0)
@@ -1214,13 +1214,13 @@ class vLLMRollout(BaseRollout):
         }, batch_size=Bn)
         print(f"resp_padded.shape: {resp_padded.shape}")####check resp_padded shape
         print(f"prm_reward.shape: {prm_reward.shape}")####check prm_reward shape
-        with open("prm_reward2_0.txt", "w", encoding="utf-8") as f:
-            f.write(str(prm_reward[0].tolist()))
+        # with open("prm_reward2_0.txt", "w", encoding="utf-8") as f:
+        #     f.write(str(prm_reward[0].tolist()))
         # 将第一个样本的 response 文本保存到文件
         first_resp_ids = resp_padded[0].tolist()
         first_resp_text = self.tokenizer.decode(first_resp_ids, skip_special_tokens=True)
-        with open("first_response2_0.txt", "w", encoding="utf-8") as f:
-            f.write(first_resp_text)
+        # with open("first_response2_0.txt", "w", encoding="utf-8") as f:
+        #     f.write(first_resp_text)
         # 可选：打印文件路径以确认
         print("Saved prm_reward to prm_reward_0.txt and first response to first_response_0.txt")
         return DataProto(batch=batch)

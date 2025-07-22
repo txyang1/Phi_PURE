@@ -203,6 +203,8 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
         data.batch['returns'] = returns
     elif adv_estimator == AdvantageEstimator.RLOO:
         token_level_rewards = data.batch['token_level_rewards']
+        print(f"[DEBUG] token_level_rewards_in_function shape = {token_level_rewards.shape}"
+              f" values = {token_level_rewards[0].detach().cpu().tolist()}")
         #token_level_rewards = data.batch['prm_reward']
         index = data.non_tensor_batch['uid']
         responses = data.batch['responses']
@@ -215,6 +217,7 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
             return_aggregate_method=return_aggregate_method,
         )
         data.batch['advantages'] = advantages
+        print(f"[DEBUG] advantages[0] shape = {advantages[0].shape}, values = {advantages[0].detach().cpu().tolist()}")
         data.batch['returns'] = returns
     # elif adv_estimator == AdvantageEstimator.RLOO_TOKEN:
     #     # —— 只做 token-level RLOO baseline —— 
@@ -557,7 +560,7 @@ def _timer(name: str, timing_raw: Dict[str, float]):
     timing_raw[name] = timer.last
 
 
-'''#reward 改动版
+#reward 改动版
 class RayPPOTrainer(object):
     """
     Note that this trainer runs on the driver process on a single CPU/GPU node.
@@ -1133,15 +1136,18 @@ class RayPPOTrainer(object):
                     batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                     batch = batch.union(gen_batch_output)
 
+                    prm = gen_batch_output.batch['prm_reward']  # tx_add prm_reward
+                    batch.batch['token_level_scores'] = prm #tx_add 如果使用phi+prm_reward#################################
+
                     # TODO: not good to forward rm before curriculum learning
                     # compute reward model's score
-                    if self.use_rm:
-                        with _timer('compute_rm_score', timing_raw):
-                            # return rm_scores
-                            # reward_tensor = self.rm_wg.compute_rm_score(batch)
-                            # batch = batch.union(reward_tensor)
-                            #直接使用prm_reward作为rm_scores,避免模型打分
-                            batch.batch['rm_scores'] = batch.batch['prm_reward']
+                    # if self.use_rm:
+                    #     with _timer('compute_rm_score', timing_raw):
+                    #         # return rm_scores
+                    #         # reward_tensor = self.rm_wg.compute_rm_score(batch)
+                    #         # batch = batch.union(reward_tensor)
+                    #         #直接使用prm_reward作为rm_scores,避免模型打分
+                    #         batch.batch['rm_scores'] = batch.batch['prm_reward']
 
                     # repeatness & reflection pattern score
                     with _timer('compute_additional_metrics', timing_raw):
@@ -1230,19 +1236,22 @@ class RayPPOTrainer(object):
                     
                     #更改计算advantage的方式
                     with _timer('compute_advantage', timing_raw):
-                        # 1. compute token-level scores from rm_scores and reward_fn_scores
-                        token_level_vr = batch.batch['reward_fn_scores']
+                        # # 1. compute token-level scores from rm_scores and reward_fn_scores
+                        # token_level_vr = batch.batch['reward_fn_scores']
 
-                        if 'rm_scores' in batch.batch.keys():
-                            vr_coef = self.config.reward_model.get('verifiable_reward_coef', 1.0)
-                            rm_coef = self.config.reward_model.get('modeling_reward_coef', 1.0)
-                            rm_scores = batch.batch['rm_scores']
-                            #token_level_scores = token_level_vr * vr_coef + rm_scores * rm_coef
-                            token_level_scores = rm_scores * rm_coef #不使用验证奖励
-                        else:
-                            token_level_scores = token_level_vr
+                        # if 'rm_scores' in batch.batch.keys():
+                        #     vr_coef = self.config.reward_model.get('verifiable_reward_coef', 1.0)
+                        #     rm_coef = self.config.reward_model.get('modeling_reward_coef', 1.0)
+                        #     rm_scores = batch.batch['rm_scores']
+                        #     #token_level_scores = token_level_vr * vr_coef + rm_scores * rm_coef
+                        #     token_level_scores = rm_scores * rm_coef #不使用验证奖励
+                        # else:
+                        #     token_level_scores = token_level_vr
+                        # batch.batch['token_level_scores'] = token_level_scores
+
+                        token_level_scores = batch.batch['token_level_scores']
                         batch.batch['token_level_scores'] = token_level_scores
-
+                        print(f"token_level_scores: {token_level_scores.shape}, {token_level_scores.dtype}")
                         # 2. compute kl penalty for token-level rewards
                         if not self.config.actor_rollout_ref.actor.get('use_kl_loss', False):
                             batch, kl_metrics = apply_kl_penalty(
@@ -1331,9 +1340,9 @@ class RayPPOTrainer(object):
                             (self.global_steps - 1) % self.config.trainer.save_freq != 0:
                         with _timer('save_checkpoint', timing_raw):
                             self._save_checkpoint()
-                    return'''
+                    return
 
-#原版
+'''#原版
 class RayPPOTrainer(object):
     """
     Note that this trainer runs on the driver process on a single CPU/GPU node.
@@ -2087,4 +2096,4 @@ class RayPPOTrainer(object):
                             (self.global_steps - 1) % self.config.trainer.save_freq != 0:
                         with _timer('save_checkpoint', timing_raw):
                             self._save_checkpoint()
-                    return
+                    return'''
