@@ -19,4 +19,4 @@ export WANDB_MODE=online
 export WANDB_PROJECT=phi_pure_rloo_rewardfree0722_1,5b
 export WANDB_NAME=phi_pure_rloo_rewardfree0722_1.5b_run1
 
-python verl/trainer/main_ppo.py 
+python verl/trainer/main_ppo_tx.py 
