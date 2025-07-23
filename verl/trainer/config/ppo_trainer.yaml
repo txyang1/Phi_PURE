@@ -15,7 +15,7 @@ data:
 actor_rollout_ref:
   hybrid_engine: True
   model:
-    path: Qwen/Qwen2.5-1.5B
+    path: Qwen/Qwen2.5-Math-1.5B
     external_lib: null
     override_config: { }
     enable_gradient_checkpointing: True
@@ -146,7 +146,7 @@ reward_model:
   ulysses_sequence_parallel_size: 1
   use_dynamic_bsz: True
   forward_max_token_len_per_gpu: 24000
-  reward_manager: prime
+  reward_manager: blank
   verifiable_reward_coef: 1.0
   modeling_reward_coef: 0.5
   repeatness_punishment: False
@@ -173,8 +173,8 @@ trainer:
   debug_mode: False
   total_epochs: 20
   total_training_steps: null
-  project_name: pure_verl
-  experiment_name: Qwen2p5-7B_prompts-${data.train_batch_size}_n-${actor_rollout_ref.rollout.n}
+  project_name: pure_verl_math_1.5B_blank
+  experiment_name: Qwen2.5-Math-1.5B-${data.train_batch_size}_n-${actor_rollout_ref.rollout.n}
   logger: ['console', 'wandb']
   val_generations_to_log_to_wandb: 0
   nnodes: 1
@@ -188,4 +188,4 @@ trainer:
   default_hdfs_dir: null
   remove_previous_ckpt_in_save: False
   del_local_ckpt_after_load: False
-  default_local_dir: logs/${trainer.project_name}/${trainer.experiment_name}
+  default_local_dir: /hkfs/work/workspace/scratch/hgf_sap9939-myspace/logs/${trainer.project_name}/${trainer.experiment_name}
