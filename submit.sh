@@ -19,4 +19,4 @@ export WANDB_MODE=online
 export WANDB_PROJECT=tx_phi_pure_rloo_softmax_1,5b
 export WANDB_NAME=tx_phi_pure_rloo_softmax_1.5b_run1
 
-python verl/trainer/main_ppo.py 
+python verl/trainer/main_ppo_zt.py 
