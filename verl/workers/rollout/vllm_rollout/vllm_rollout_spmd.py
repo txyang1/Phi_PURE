@@ -980,6 +980,7 @@ class vLLMRollout(BaseRollout):
 
         # —— 5. 多步前瞻 (num_foresight) ——
         for depth in range(num_foresight):
+            #skip_current = False      # 重置，下轮还能重新判断
             # —— 阶段1：并行构造所有 prompt ——
             all_inputs = []
             for b in range(bs):
@@ -1054,44 +1055,46 @@ class vLLMRollout(BaseRollout):
                 cand   = [resp_slice[i] for i in keep]
                 adv_k  = adv_slice[keep]
 
-                # # 聚类###################################有深度剪枝
-                X      = TfidfVectorizer().fit_transform(cand)
-                labels = KMeans(n_clusters=cluster_num).fit_predict(X)
+                # # # 聚类###################################有深度剪枝
+                # X      = TfidfVectorizer().fit_transform(cand)
+                # labels = KMeans(n_clusters=cluster_num).fit_predict(X)
 
-                # 计算簇比例
-                counts = np.bincount(labels, minlength=cluster_num)
-                cluster_ratios = counts / counts.sum()
-                cluster_weights = softmax(cluster_ratios[labels])
+                # # 计算簇比例
+                # counts = np.bincount(labels, minlength=cluster_num)
+                # cluster_ratios = counts / counts.sum()
+                # cluster_weights = softmax(cluster_ratios[labels])
 
-                # 计算增益权重
-                adv_weights = softmax(adv_k/temperature)
-                combined_weights= adv_weights
+                # # 计算增益权重
+                # adv_weights = softmax(adv_k/temperature)
+                # combined_weights= adv_weights
 
-                # 合并权重
-                combined_weights = 0.5*cluster_weights + 0.5*adv_weights
+                # # 合并权重
+                # combined_weights = 0.5*cluster_weights + 0.5*adv_weights
 
-                # —— 深度剪枝判定 ——  
-                # 计算最大的簇比例，如果超过阈值就停止前瞻
-                largest_ratio = counts.max() / len(resp_slice)
-                if largest_ratio >= threshold:
-                    # 跳出内层 batch 循环和外层 depth 循环
-                    stop_foresight = True
-                    break
+                # # —— 深度剪枝判定 ——  
+                # # 计算最大的簇比例，如果超过阈值就停止前瞻
+                # largest_ratio = counts.max() / len(resp_slice)
+                # if largest_ratio >= threshold:
+                #     # 跳出内层 batch 循环和外层 depth 循环
+                #     skip_current = True
+                #     break
                 
-                # —— 新增：检测是否已有完整轨迹 ——  
-                traj_complete = False
-                # 这里的 candidates_list 就是 cand；如果你用其它变量名，请相应替换
-                for idx, text in enumerate(cand):
-                    if any(tag in text for tag in ["\\boxed{", "<boxed>", "<end_of_reasoning>"]):
-                        traj_complete = True
-                        break
-                if traj_complete:
-                    stop_foresight = True
-                    break  # 同样跳出 batch b 循环
+                # # # —— 新增：检测是否已有完整轨迹 ——  
+                # traj_complete = False
+                # # # 这里的 candidates_list 就是 cand；如果你用其它变量名，请相应替换
+                # traj_complete = any(tag in text
+                #                    for text in cand
+                #                    for tag in ["\\boxed{", "<boxed>", "<end_of_reasoning>"])
+                # if traj_complete:
+                #    skip_current = True
+                #    break  
                 ##################################################################
                 # 计算增益权重，无深度剪枝
-                #combined_weights = softmax(adv_k/temperature)#########################################
+                combined_weights = softmax(adv_k/temperature)#########################################
 
+                # #########################
+                # if skip_current:
+                #     continue                  # 跳过 Stage2–4，进入下一个 depth
                 # 一次性抽 beam_size 条
                 selected_idxs = np.random.choice(
                     len(keep), size=beam_size, replace=False, p=combined_weights
@@ -1117,10 +1120,7 @@ class vLLMRollout(BaseRollout):
 
                     new_steps[b][k]  = prev_steps[b][origin_beam] + resp_slice[sel] + "\n"
                     new_values[b][k] = lp_slice[sel]
-            
-            if stop_foresight:
-                # 提前停止多步前瞻
-                break
+
 
             prev_steps, prev_values, weights_history = new_steps, new_values, new_weights
         #print(f"prev_steps: {prev_steps}")###check prev_steps
