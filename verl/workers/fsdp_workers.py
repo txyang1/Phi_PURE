@@ -46,7 +46,6 @@ from verl.utils.fsdp_utils import (
 from verl.utils.import_utils import import_external_libs
 from verl.utils.model import compute_position_id_with_mask
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
-from phi.phi_decoding import PhiDecoder  
 import ray
 
 logger = logging.getLogger(__file__)
@@ -305,7 +304,7 @@ class ActorRolloutRefWorker(Worker):
         # phi_args = parse_arguments_from_my_config(config.phi)
         # self.phi_decoder = PhiDecoder(phi_args)
         # 只有在 rollout（ActorRollout）阶段才初始化 PhiDecoder
-        self.phi_decoder = None
+        #self.phi_decoder = None
         
     def _build_model_optimizer(self,
                                model_path,
