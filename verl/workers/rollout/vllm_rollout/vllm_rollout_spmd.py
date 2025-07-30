@@ -41,8 +41,8 @@ from verl.third_party.vllm import vllm_version
 
 import numpy as np
 from scipy.special import softmax
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.cluster import KMeans
+# from sklearn.feature_extraction.text import TfidfVectorizer
+# from sklearn.cluster import KMeans
 from transformers import AutoTokenizer
 from torch.nn.utils.rnn import pad_sequence
 
