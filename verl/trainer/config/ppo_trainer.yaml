@@ -393,10 +393,10 @@ algorithm:
 trainer:
   val_before_train: False   # 取消训练前的初始验证
   debug_mode: False
-  total_epochs: 20
+  total_epochs: 10
   total_training_steps: null
-  project_name: pure_verl
-  experiment_name: Qwen2p5-7B_prompts-${data.train_batch_size}_n-${actor_rollout_ref.rollout.n}
+  project_name: pure_verl_rloo_reward_free_new
+  experiment_name: Qwen2p5-1.5B_rloo_reward_free_new-${data.train_batch_size}_n-${actor_rollout_ref.rollout.n}
   logger: ['console', 'wandb']
   val_generations_to_log_to_wandb: 0
   nnodes: 1
