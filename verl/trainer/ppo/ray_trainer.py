@@ -605,7 +605,7 @@ class RayPPOTrainer(object):
         self.role_worker_mapping = role_worker_mapping
         self.resource_pool_manager = resource_pool_manager
         self.use_reference_policy = Role.RefPolicy in role_worker_mapping
-        self.use_rm = Role.RewardModel in role_worker_mapping
+        # self.use_rm = Role.RewardModel in role_worker_mapping
         self.ray_worker_group_cls = ray_worker_group_cls
 
         # define KL control
@@ -685,10 +685,10 @@ class RayPPOTrainer(object):
                                      config.actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu,
                                      "actor_rollout_ref.rollout")
 
-        if self.use_critic and not config.critic.use_dynamic_bsz:
-            # Check for critic micro-batch size conflicts
-            check_mutually_exclusive(config.critic.ppo_micro_batch_size, config.critic.ppo_micro_batch_size_per_gpu,
-                                     "critic")
+        # if self.use_critic and not config.critic.use_dynamic_bsz:
+        #     # Check for critic micro-batch size conflicts
+        #     check_mutually_exclusive(config.critic.ppo_micro_batch_size, config.critic.ppo_micro_batch_size_per_gpu,
+        #                              "critic")
 
         # Check for reward model micro-batch size conflicts
         if config.reward_model.enable and not config.reward_model.use_dynamic_bsz:
@@ -705,12 +705,12 @@ class RayPPOTrainer(object):
                 assert config.actor_rollout_ref.actor.ppo_mini_batch_size % config.actor_rollout_ref.actor.ppo_micro_batch_size == 0
                 assert config.actor_rollout_ref.actor.ppo_micro_batch_size * sp_size >= n_gpus
 
-        # critic
-        if self.use_critic and not config.critic.use_dynamic_bsz:
-            sp_size = config.critic.get('ulysses_sequence_parallel_size', 1)
-            if config.critic.ppo_micro_batch_size is not None:
-                assert config.critic.ppo_mini_batch_size % config.critic.ppo_micro_batch_size == 0
-                assert config.critic.ppo_micro_batch_size * sp_size >= n_gpus
+        # # critic
+        # if self.use_critic and not config.critic.use_dynamic_bsz:
+        #     sp_size = config.critic.get('ulysses_sequence_parallel_size', 1)
+        #     if config.critic.ppo_micro_batch_size is not None:
+        #         assert config.critic.ppo_mini_batch_size % config.critic.ppo_micro_batch_size == 0
+        #         assert config.critic.ppo_micro_batch_size * sp_size >= n_gpus
 
         # Check if use_remove_padding is enabled when using sequence parallelism for fsdp
         if config.actor_rollout_ref.actor.strategy == 'fsdp':
@@ -719,10 +719,10 @@ class RayPPOTrainer(object):
                 assert config.actor_rollout_ref.model.use_remove_padding, \
                     "When using sequence parallelism for actor/ref policy, you must enable `use_remove_padding`."
 
-        if self.use_critic and config.critic.strategy == 'fsdp':
-            if config.critic.get('ulysses_sequence_parallel_size', 1) > 1:
-                assert config.critic.model.use_remove_padding, \
-                    "When using sequence parallelism for critic, you must enable `use_remove_padding`."
+        # if self.use_critic and config.critic.strategy == 'fsdp':
+        #     if config.critic.get('ulysses_sequence_parallel_size', 1) > 1:
+        #         assert config.critic.model.use_remove_padding, \
+        #             "When using sequence parallelism for critic, you must enable `use_remove_padding`."
 
         if config.data.get('val_batch_size', None) is not None:
             print(
@@ -950,12 +950,12 @@ class RayPPOTrainer(object):
                                                   role='ref')
             self.resource_pool_to_cls[resource_pool]['ref'] = ref_policy_cls
 
-        # create a reward model if reward_fn is None
-        if self.use_rm:
-            # we create a RM here
-            resource_pool = self.resource_pool_manager.get_resource_pool(Role.RewardModel)
-            rm_cls = RayClassWithInitArgs(self.role_worker_mapping[Role.RewardModel], config=self.config.reward_model)
-            self.resource_pool_to_cls[resource_pool]['rm'] = rm_cls
+        # # create a reward model if reward_fn is None
+        # if self.use_rm:
+        #     # we create a RM here
+        #     resource_pool = self.resource_pool_manager.get_resource_pool(Role.RewardModel)
+        #     rm_cls = RayClassWithInitArgs(self.role_worker_mapping[Role.RewardModel], config=self.config.reward_model)
+        #     self.resource_pool_to_cls[resource_pool]['rm'] = rm_cls
 
         # initialize WorkerGroup
         # NOTE: if you want to use a different resource pool for each role, which can support different parallel size,
@@ -971,17 +971,17 @@ class RayPPOTrainer(object):
             # keep the referece of WorkerDict to support ray >= 2.31. Ref: https://github.com/ray-project/ray/pull/45699
             self.wg_dicts.append(wg_dict)
 
-        if self.use_critic:
-            self.critic_wg = all_wg['critic']
-            self.critic_wg.init_model()
+        # if self.use_critic:
+        #     self.critic_wg = all_wg['critic']
+        #     self.critic_wg.init_model()
 
         if self.use_reference_policy:
             self.ref_policy_wg = all_wg['ref']
             self.ref_policy_wg.init_model()
 
-        if self.use_rm:
-            self.rm_wg = all_wg['rm']
-            self.rm_wg.init_model()
+        # if self.use_rm:
+        #     self.rm_wg = all_wg['rm']
+        #     self.rm_wg.init_model()
 
         # we should create rollout at the end so that vllm can have a better estimation of kv cache memory
         self.actor_rollout_wg = all_wg['actor_rollout']
@@ -1000,14 +1000,14 @@ class RayPPOTrainer(object):
                                               self.global_steps,
                                               remove_previous_ckpt=self.config.trainer.remove_previous_ckpt_in_save)
 
-        if self.use_critic:
-            critic_local_path = os.path.join(local_global_step_folder, 'critic')
-            critic_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(
-                self.config.trainer.default_hdfs_dir, f'global_step_{self.global_steps}', 'critic')
-            self.critic_wg.save_checkpoint(critic_local_path,
-                                           critic_remote_path,
-                                           self.global_steps,
-                                           remove_previous_ckpt=self.config.trainer.remove_previous_ckpt_in_save)
+        # if self.use_critic:
+        #     critic_local_path = os.path.join(local_global_step_folder, 'critic')
+        #     critic_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(
+        #         self.config.trainer.default_hdfs_dir, f'global_step_{self.global_steps}', 'critic')
+        #     self.critic_wg.save_checkpoint(critic_local_path,
+        #                                    critic_remote_path,
+        #                                    self.global_steps,
+        #                                    remove_previous_ckpt=self.config.trainer.remove_previous_ckpt_in_save)
 
         # save dataloader
         dataloader_local_path = os.path.join(local_global_step_folder, 'data.pt')
@@ -1059,10 +1059,10 @@ class RayPPOTrainer(object):
         # load actor
         self.actor_rollout_wg.load_checkpoint(actor_path,
                                               del_local_after_load=self.config.trainer.del_local_ckpt_after_load)
-        # load critic
-        if self.use_critic:
-            self.critic_wg.load_checkpoint(critic_path,
-                                           del_local_after_load=self.config.trainer.del_local_ckpt_after_load)
+        # # load critic
+        # if self.use_critic:
+        #     self.critic_wg.load_checkpoint(critic_path,
+        #                                    del_local_after_load=self.config.trainer.del_local_ckpt_after_load)
 
         # load dataloader,
         # TODO: from remote not implemented yet
@@ -1147,8 +1147,10 @@ class RayPPOTrainer(object):
                     batch = batch.union(gen_batch_output)
 
                     prm = gen_batch_output.batch['prm_reward']  # tx_add prm_reward
+                    print(f"[DEBUG] prm_reward shape={prm.shape}")
+                    print("[DEBUG] prm_reward values:", prm.detach().cpu().tolist())
                     batch.batch['token_level_scores'] = prm #tx_add 如果使用phi+prm_reward#################################
-
+                    
                     # TODO: not good to forward rm before curriculum learning
                     # compute reward model's score
                     # if self.use_rm:
