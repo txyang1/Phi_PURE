@@ -1116,7 +1116,7 @@ class vLLMRollout(BaseRollout):
                     raw_adv = float(adv_slice[sel])               # adv_slice = all_lp - prev_v
                     token_ids = self.tokenizer.encode(resp_text, add_special_tokens=False)
                     #rep_adv = [raw_adv] * len(token_ids)
-                    rep_adv = [raw_adv] + [0.0] * (len(token_ids)-1)      ## 只在第一个 token 上记录 adv，其余为 0.0
+                    rep_adv = [0.0] * (len(token_ids)-1)+ [raw_adv]      ## 只在最后一个 token 上记录 adv，其余为 0.0
                     new_weights[b][k] = weights_history[b][origin_beam] + rep_adv
 
                     new_steps[b][k]  = prev_steps[b][origin_beam] + resp_slice[sel] + "\n"
@@ -1190,8 +1190,8 @@ class vLLMRollout(BaseRollout):
             #final_rewards_padded.append(final_rewards[i] + [1.0] * len(token_ids))
             prob = final_probs[i]
             #final_rewards_padded.append(final_rewards[i] + [prob] * len(token_ids))
-            segment_reward = [prob] + [0.0] * (len(token_ids) - 1)
-            final_rewards_padded.append(final_rewards[i] + segment_reward)  #第一个 token 的 reward 是 prob，其余为 0.0
+            segment_reward = [0.0] * (len(token_ids) - 1)+ [prob] 
+            final_rewards_padded.append(final_rewards[i] + segment_reward)  #最后一个 token 的 reward 是 prob，其余为 0.0
 
         # encode & pad responses
         full_resp_ids = [self.tokenizer.encode(t, add_special_tokens=False) for t in full_texts]
@@ -1215,19 +1215,19 @@ class vLLMRollout(BaseRollout):
         prm_reward = torch.tensor(pr_tensors, device=device)
 
         
-        # ####neu reward 这样计算导致reward过小
-        # # 按公式算权重：w_i = exp(-r_i/T) / sum_j exp(-r_j/T)
-        r = prm_reward
-        T = temperature 
-        exp_neg = torch.exp(-r / T)           # [Bn, L]
-        den = exp_neg.sum(dim=1, keepdim=True)  # [Bn, 1]
-        w = exp_neg / den                       # [Bn, L]
+        # ####neu reward 这样计算导致reward过小， 可能重复了0803
+        # # # 按公式算权重：w_i = exp(-r_i/T) / sum_j exp(-r_j/T)
+        # r = prm_reward
+        # T = temperature 
+        # exp_neg = torch.exp(-r / T)           # [Bn, L]
+        # den = exp_neg.sum(dim=1, keepdim=True)  # [Bn, 1]
+        # w = exp_neg / den                       # [Bn, L]
 
-        # 4) 最终 r*_i = w_i * r_i
-        r_star = w * r                          # [Bn, L]
+        # # 4) 最终 r*_i = w_i * r_i
+        # r_star = w * r                          # [Bn, L]
 
-        # 5) 用 r_star 作为 prm_reward
-        prm_reward = r_star
+        # # 5) 用 r_star 作为 prm_reward
+        # prm_reward = r_star
 
         # —— 9. repeat 原 prompt tensors & 拼 batch —— repeat 原 prompt tensors & 拼 batch ——
         Bn = resp_padded.size(0)
