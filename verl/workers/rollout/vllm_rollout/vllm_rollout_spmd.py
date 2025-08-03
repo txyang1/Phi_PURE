@@ -1253,14 +1253,14 @@ class vLLMRollout(BaseRollout):
         print(f"[DEBUG] resp_padded.shape: {resp_padded.shape}")####check resp_padded shape
         print(f"[DEBUG] prm_reward.shape: {prm_reward.shape}")####check prm_reward shape
         print(f"[DEBUG] prm_reward[0]: {prm_reward[0]}")####check prm_reward[0]
-        with open("prm_reward5.txt", "w", encoding="utf-8") as f:
+        with open("prm_reward0803.txt", "w", encoding="utf-8") as f:
             f.write(str(prm_reward[0].tolist()))
         # 将第一个样本的 response 文本保存到文件
         first_resp_ids = resp_padded[0].tolist()
         #print(f"[DEBUG] first_resp_ids: {first_resp_ids}")####check first_resp_ids
         first_resp_text = self.tokenizer.decode(first_resp_ids, skip_special_tokens=True)
         print(f"[DEBUG] first_resp_text: {first_resp_text}")####check first_resp_text
-        with open("first_response5.txt", "w", encoding="utf-8") as f:
+        with open("first_response0803.txt", "w", encoding="utf-8") as f:
             f.write(first_resp_text)
         # 可选：打印文件路径以确认
         print("[DEBUG] Saved prm_reward to prm_reward_0.txt and first response to first_response_0.txt")
