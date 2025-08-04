@@ -1215,19 +1215,19 @@ class vLLMRollout(BaseRollout):
         prm_reward = torch.tensor(pr_tensors, device=device)
 
         
-        # ####neu reward 这样计算导致reward过小， 可能重复了0803
-        # # # 按公式算权重：w_i = exp(-r_i/T) / sum_j exp(-r_j/T)
-        # r = prm_reward
-        # T = temperature 
-        # exp_neg = torch.exp(-r / T)           # [Bn, L]
-        # den = exp_neg.sum(dim=1, keepdim=True)  # [Bn, 1]
-        # w = exp_neg / den                       # [Bn, L]
+        # ####neu reward r*
+        # # 按r*公式算权重：w_i = exp(-r_i/T) / sum_j exp(-r_j/T)
+        r = prm_reward
+        T = temperature 
+        exp_neg = torch.exp(-r / T)           # [Bn, L]
+        den = exp_neg.sum(dim=1, keepdim=True)  # [Bn, 1]
+        w = exp_neg / den                       # [Bn, L]
 
-        # # 4) 最终 r*_i = w_i * r_i
-        # r_star = w * r                          # [Bn, L]
+        # 4) 最终 r*_i = w_i * r_i
+        r_star = w * r                          # [Bn, L]
 
-        # # 5) 用 r_star 作为 prm_reward
-        # prm_reward = r_star
+        # 5) 用 r_star 作为 prm_reward
+        prm_reward = r_star
 
         # —— 9. repeat 原 prompt tensors & 拼 batch —— repeat 原 prompt tensors & 拼 batch ——
         Bn = resp_padded.size(0)

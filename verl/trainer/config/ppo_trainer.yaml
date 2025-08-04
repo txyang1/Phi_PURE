@@ -395,8 +395,8 @@ trainer:
   debug_mode: False
   total_epochs: 1
   total_training_steps: null
-  project_name: pure_verl_rloo_reward_free_db
-  experiment_name: Qwen2p5-1.5B_rloo_reward_free_db-${data.train_batch_size}_n-${actor_rollout_ref.rollout.n}
+  project_name: pure_verl_rloo_reward_free_last_token_0804
+  experiment_name: Qwen2p5-1.5B_rloo_reward_free_last_token_0804-${data.train_batch_size}_n-${actor_rollout_ref.rollout.n}
   logger: ['console', 'wandb']
   val_generations_to_log_to_wandb: 0
   nnodes: 1
