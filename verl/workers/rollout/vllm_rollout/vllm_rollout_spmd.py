@@ -1218,7 +1218,7 @@ class vLLMRollout(BaseRollout):
         # ####neu reward r*
         # # 按r*公式算权重：w_i = exp(-r_i/T) / sum_j exp(-r_j/T)
         r = prm_reward
-        T = temperature 
+        T = 0.1 # 温度越小，最差一步越影响权重
         exp_neg = torch.exp(-r / T)           # [Bn, L]
         den = exp_neg.sum(dim=1, keepdim=True)  # [Bn, 1]
         w = exp_neg / den                       # [Bn, L]
