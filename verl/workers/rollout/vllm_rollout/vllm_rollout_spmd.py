@@ -1055,6 +1055,19 @@ class vLLMRollout(BaseRollout):
                 cand   = [resp_slice[i] for i in keep]
                 adv_k  = adv_slice[keep]
 
+                # —— 新增：用 abs & gain 混合做权重 ——  
+                # 绝对置信度：取 avg log-prob（F_t）  
+                abs_k   = lp_slice[keep]              # F_t(a_t)
+                C_abs   = softmax(abs_k   / temperature)
+                # 信心增益：dynamic advantage (A_t)  
+                C_gain  = softmax(adv_k   / temperature)
+                # 从 kwargs 读入 λ，默认 0.6  
+                mix_lambda = float(kwargs.get("mix_lambda", 0.6))
+                # 混合权重
+                combined_weights = mix_lambda * C_abs + (1 - mix_lambda) * C_gain
+                
+
+
                 # # # 聚类###################################有深度剪枝
                 # X      = TfidfVectorizer().fit_transform(cand)
                 # labels = KMeans(n_clusters=cluster_num).fit_predict(X)
@@ -1090,7 +1103,7 @@ class vLLMRollout(BaseRollout):
                 #    break  
                 ##################################################################
                 # 计算增益权重，无深度剪枝
-                combined_weights = softmax(adv_k/temperature)#########################################
+                #combined_weights = softmax(adv_k/temperature)#########################################
 
                 # #########################
                 # if skip_current:
@@ -1218,7 +1231,7 @@ class vLLMRollout(BaseRollout):
         # ####neu reward r*
         # # 按r*公式算权重：w_i = exp(-r_i/T) / sum_j exp(-r_j/T)
         r = prm_reward
-        T = 0.1 # 温度越小，最差一步越影响权重
+        T = 1 # 温度越小，最差一步越影响权重
         exp_neg = torch.exp(-r / T)           # [Bn, L]
         den = exp_neg.sum(dim=1, keepdim=True)  # [Bn, 1]
         w = exp_neg / den                       # [Bn, L]
